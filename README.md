@@ -24,3 +24,5 @@ Sometimes it calculates like a machine. Sometimes it forgets what game it's play
 - License: **CC-BY-SA 3.0**
 
 For full attribution details in-project, see: `public/CREDITS.md`.
+
+This is just a project for fun, chess.com please don't sue me

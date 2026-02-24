@@ -239,7 +239,8 @@ button:hover {
   padding: 0.75rem;
 }
 
-.settings-panel h2 {
+.settings-panel h2,
+.captures-panel h2 {
   margin: 0 0 0.5rem;
   font-size: 1rem;
 }
@@ -273,6 +274,51 @@ button:hover {
 .percent-symbol {
   color: var(--text);
   font-size: 0.95rem;
+}
+
+.captures-panel {
+  background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
+  border: 1px solid #463527;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.capture-row {
+  display: grid;
+  grid-template-columns: 4.8rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.capture-row + .capture-row {
+  margin-top: 0.45rem;
+}
+
+.capture-label {
+  font-size: 0.9rem;
+  color: #dbc7af;
+}
+
+.capture-icons {
+  min-height: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.08rem;
+  flex-wrap: wrap;
+}
+
+.capture-piece {
+  width: 0.95rem;
+  height: 0.95rem;
+  object-fit: contain;
+}
+
+.capture-score {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #d7d99f;
+  min-width: 2.2rem;
+  text-align: right;
 }
 
 .moves-panel h2 {

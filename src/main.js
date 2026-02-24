@@ -11,6 +11,10 @@ const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
 const dilutionSlider = document.querySelector('#dilution-slider');
 const dilutionInput = document.querySelector('#dilution-input');
+const opponentCapturesEl = document.querySelector('#opponent-captures');
+const yourCapturesEl = document.querySelector('#your-captures');
+const opponentCaptureScoreEl = document.querySelector('#opponent-capture-score');
+const yourCaptureScoreEl = document.querySelector('#your-capture-score');
 
 const game = createGame();
 const engine = createEngine();
@@ -22,6 +26,10 @@ let pendingPromotion = null;
 let lastMove = null;
 let dilutionPercent = 100;
 let computerMoveKinds = new Map();
+
+const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
+const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
+const STARTING_COUNTS = { p: 8, b: 2, n: 2, r: 2, q: 1 };
 
 const board = createBoard({
   container: boardEl,
@@ -38,6 +46,17 @@ function colorName(color) {
 
 function oppositeColor(color) {
   return color === 'w' ? 'b' : 'w';
+}
+
+function pieceImageName(color, type) {
+  const nameByType = {
+    p: 'pawn',
+    b: 'bishop',
+    n: 'knight',
+    r: 'rook',
+    q: 'queen'
+  };
+  return `${color}_${nameByType[type]}_png_128px.png`;
 }
 
 function clampDilution(value) {
@@ -141,6 +160,80 @@ function updateMovesTable() {
   }
 }
 
+function calculateCapturedPiecesByColor(positionBySquare) {
+  const counts = {
+    w: { p: 0, b: 0, n: 0, r: 0, q: 0 },
+    b: { p: 0, b: 0, n: 0, r: 0, q: 0 }
+  };
+
+  for (const piece of Object.values(positionBySquare)) {
+    if (!counts[piece.color] || !(piece.type in counts[piece.color])) {
+      continue;
+    }
+    counts[piece.color][piece.type] += 1;
+  }
+
+  return {
+    w: {
+      p: STARTING_COUNTS.p - counts.w.p,
+      b: STARTING_COUNTS.b - counts.w.b,
+      n: STARTING_COUNTS.n - counts.w.n,
+      r: STARTING_COUNTS.r - counts.w.r,
+      q: STARTING_COUNTS.q - counts.w.q
+    },
+    b: {
+      p: STARTING_COUNTS.p - counts.b.p,
+      b: STARTING_COUNTS.b - counts.b.b,
+      n: STARTING_COUNTS.n - counts.b.n,
+      r: STARTING_COUNTS.r - counts.b.r,
+      q: STARTING_COUNTS.q - counts.b.q
+    }
+  };
+}
+
+function renderCaptureIcons(container, capturedCounts, capturedColor) {
+  container.innerHTML = '';
+
+  for (const type of PIECE_ORDER) {
+    const count = capturedCounts[type];
+    for (let i = 0; i < count; i += 1) {
+      const img = document.createElement('img');
+      img.className = 'capture-piece';
+      img.src = `${import.meta.env.BASE_URL}assets/chess/${pieceImageName(capturedColor, type)}`;
+      img.alt = `${capturedColor === 'w' ? 'white' : 'black'} ${type}`;
+      container.appendChild(img);
+    }
+  }
+}
+
+function capturedValueSum(capturedCounts) {
+  return PIECE_ORDER.reduce((total, type) => total + capturedCounts[type] * PIECE_VALUES[type], 0);
+}
+
+function formatSignedScore(score) {
+  return score >= 0 ? `+${score}` : `${score}`;
+}
+
+function updateCapturesPanel() {
+  const position = game.getPosition();
+  const humanColor = game.getHumanColor();
+  const opponentColor = oppositeColor(humanColor);
+  const capturedByColor = calculateCapturedPiecesByColor(position);
+
+  const opponentCaptures = capturedByColor[humanColor];
+  const yourCaptures = capturedByColor[opponentColor];
+
+  renderCaptureIcons(opponentCapturesEl, opponentCaptures, humanColor);
+  renderCaptureIcons(yourCapturesEl, yourCaptures, opponentColor);
+
+  const opponentValue = capturedValueSum(opponentCaptures);
+  const yourValue = capturedValueSum(yourCaptures);
+  const delta = yourValue - opponentValue;
+
+  opponentCaptureScoreEl.textContent = formatSignedScore(-delta);
+  yourCaptureScoreEl.textContent = formatSignedScore(delta);
+}
+
 function isHumanTurn() {
   return game.getTurn() === game.getHumanColor();
 }
@@ -169,6 +262,7 @@ function refresh() {
 
   updateInteractionMode();
   updateBoard();
+  updateCapturesPanel();
   updateMovesTable();
 }
 

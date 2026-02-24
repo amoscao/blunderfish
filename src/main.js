@@ -214,6 +214,10 @@ function formatSignedScore(score) {
   return score >= 0 ? `+${score}` : `${score}`;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function updateCapturesPanel() {
   const position = game.getPosition();
   const humanColor = game.getHumanColor();
@@ -335,6 +339,7 @@ async function requestEngineMove() {
       }
       const choiceIndex = Math.floor(Math.random() * legalMoves.length);
       selectedMove = legalMoves[choiceIndex];
+      await sleep(1500);
     } else {
       selectedMove = await engine.getBestMove(game.getFen(), 1500);
     }

@@ -97,11 +97,7 @@ function statusReasonText(reason) {
 function updateStatus() {
   const status = game.getGameStatus();
   const humanColor = game.getHumanColor();
-
-  if (thinking) {
-    statusTextEl.textContent = `You are ${colorName(humanColor)}. Blunderfish is thinking...`;
-    return;
-  }
+  const history = game.getMoveHistory();
 
   if (status.over) {
     if (status.result === 'draw') {
@@ -115,9 +111,27 @@ function updateStatus() {
     return;
   }
 
-  const turnText = game.getTurn() === humanColor ? 'Your move' : 'Stockfish to move';
-  const checkText = status.check ? ' Check.' : '';
-  statusTextEl.textContent = `You are ${colorName(humanColor)}. ${turnText}.${checkText}`;
+  const isHumanToMove = game.getTurn() === humanColor;
+  const isOpeningWhiteTurn = humanColor === 'w' && isHumanToMove && history.length === 0;
+
+  if (isOpeningWhiteTurn) {
+    statusTextEl.textContent = 'You are White. Your Move.';
+    return;
+  }
+
+  if (!isHumanToMove) {
+    statusTextEl.textContent = 'Blunderfish is thinking...';
+    return;
+  }
+
+  const lastMoveIndex = history.length - 1;
+  const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
+  if (revealBlunders && lastMoveKind === 'random') {
+    statusTextEl.textContent = 'Your move. Stockfish blundered! 🎲';
+    return;
+  }
+
+  statusTextEl.textContent = 'Your move.';
 }
 
 function updateBoard() {

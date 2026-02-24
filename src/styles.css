@@ -128,10 +128,10 @@ button:hover {
 
 .piece {
   display: block;
-  width: 88%;
-  height: 88%;
-  max-width: 88%;
-  max-height: 88%;
+  width: 79%;
+  height: 79%;
+  max-width: 79%;
+  max-height: 79%;
   object-fit: contain;
   z-index: 2;
   user-select: none;
@@ -141,7 +141,7 @@ button:hover {
 .coord {
   position: absolute;
   font-weight: 700;
-  font-size: clamp(0.7rem, 1.4vw, 1.9rem);
+  font-size: clamp(0.62rem, 1.2vw, 1.6rem);
   line-height: 1;
   user-select: none;
   pointer-events: none;

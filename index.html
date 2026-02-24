@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stockfish Dilution</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <h1>Stockfish Dilution</h1>
+        <div class="controls">
+          <button id="new-game-btn" type="button">New Game</button>
+          <button id="flip-board-btn" type="button">Flip Board</button>
+        </div>
+      </header>
+
+      <section class="status-wrap">
+        <p id="status-text" aria-live="polite"></p>
+      </section>
+
+      <section class="board-wrap">
+        <div id="board" class="board" aria-label="Chess board"></div>
+      </section>
+
+      <footer class="footer">
+        <a href="./CREDITS.md" target="_blank" rel="noreferrer">Asset and engine credits</a>
+      </footer>
+    </main>
+
+    <dialog id="promotion-dialog" class="promotion-dialog">
+      <form method="dialog">
+        <h2>Choose promotion</h2>
+        <div id="promotion-options" class="promotion-options"></div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

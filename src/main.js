@@ -34,7 +34,7 @@ let lastBoardTouchEndTs = 0;
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
 const STARTING_COUNTS = { p: 8, b: 2, n: 2, r: 2, q: 1 };
-const CONFUSION_HURT_THRESHOLD_CP = 100;
+const CONFUSION_HURT_THRESHOLD_CP = 300;
 
 const board = createBoard({
   container: boardEl,

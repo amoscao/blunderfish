@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Blunderfish</title>
+    <title>Stockfish Dilution</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
-        <h1>Blunderfish</h1>
+        <h1>Stockfish Dilution</h1>
         <div class="controls">
           <button id="new-game-btn" type="button">New Game</button>
           <button id="flip-board-btn" type="button">Flip Board</button>
@@ -27,29 +27,29 @@
         <aside class="right-column" aria-label="Controls and move list">
           <section class="settings-panel" aria-label="Settings">
             <h2>Settings</h2>
-            <label class="setting-label" for="blunder-slider">
-              Blunder Chance
+            <label class="setting-label" for="dilution-slider">
+              Dilution Percentage (higher is smarter)
             </label>
             <div class="setting-row">
               <input
-                id="blunder-slider"
+                id="dilution-slider"
                 class="dilution-slider"
                 type="range"
                 min="0"
                 max="100"
                 step="1"
-                value="20"
+                value="100"
               />
               <input
-                id="blunder-input"
+                id="dilution-input"
                 class="dilution-input"
                 type="number"
                 min="0"
                 max="100"
                 step="1"
-                value="20"
+                value="100"
                 inputmode="numeric"
-                aria-label="Blunder chance percentage"
+                aria-label="Dilution percentage"
               />
               <span class="percent-symbol">%</span>
             </div>

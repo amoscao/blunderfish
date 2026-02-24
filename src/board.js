@@ -170,8 +170,10 @@ export function createBoard({ container, onHumanMoveAttempt }) {
       }
 
       const coordTextClass = squareShade === 'dark' ? 'light-text' : 'dark-text';
-      const showRankLabel = file === 'a';
-      const showFileLabel = rank === '1';
+      const leftFile = orientation === 'w' ? 'a' : 'h';
+      const bottomRank = orientation === 'w' ? '1' : '8';
+      const showRankLabel = file === leftFile;
+      const showFileLabel = rank === bottomRank;
 
       if (showRankLabel) {
         const rankLabel = document.createElement('span');

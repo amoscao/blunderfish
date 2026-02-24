@@ -9,8 +9,8 @@ const flipBoardBtn = document.querySelector('#flip-board-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
-const dilutionSlider = document.querySelector('#dilution-slider');
-const dilutionInput = document.querySelector('#dilution-input');
+const blunderSlider = document.querySelector('#blunder-slider');
+const blunderInput = document.querySelector('#blunder-input');
 const opponentCapturesEl = document.querySelector('#opponent-captures');
 const yourCapturesEl = document.querySelector('#your-captures');
 const opponentCaptureScoreEl = document.querySelector('#opponent-capture-score');
@@ -24,7 +24,7 @@ let searchToken = 0;
 let thinking = false;
 let pendingPromotion = null;
 let lastMove = null;
-let dilutionPercent = 100;
+let blunderChancePercent = 20;
 let computerMoveKinds = new Map();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
@@ -59,17 +59,17 @@ function pieceImageName(color, type) {
   return `${color}_${nameByType[type]}_png_128px.png`;
 }
 
-function clampDilution(value) {
+function clampBlunderChance(value) {
   if (Number.isNaN(value)) {
-    return dilutionPercent;
+    return blunderChancePercent;
   }
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
-function setDilutionControls(nextValue) {
-  dilutionPercent = clampDilution(nextValue);
-  dilutionSlider.value = String(dilutionPercent);
-  dilutionInput.value = String(dilutionPercent);
+function setBlunderControls(nextValue) {
+  blunderChancePercent = clampBlunderChance(nextValue);
+  blunderSlider.value = String(blunderChancePercent);
+  blunderInput.value = String(blunderChancePercent);
 }
 
 function statusReasonText(reason) {
@@ -323,13 +323,11 @@ async function requestEngineMove() {
   refresh();
 
   try {
-    const useEngineMove = Math.random() < dilutionPercent / 100;
+    const useRandomMove = Math.random() < blunderChancePercent / 100;
     const historyPlyIndex = game.getMoveHistory().length;
     let selectedMove;
 
-    if (useEngineMove) {
-      selectedMove = await engine.getBestMove(game.getFen(), 1500);
-    } else {
+    if (useRandomMove) {
       const legalMoves = game.getAllLegalMoves();
       if (legalMoves.length === 0) {
         refresh();
@@ -337,6 +335,8 @@ async function requestEngineMove() {
       }
       const choiceIndex = Math.floor(Math.random() * legalMoves.length);
       selectedMove = legalMoves[choiceIndex];
+    } else {
+      selectedMove = await engine.getBestMove(game.getFen(), 1500);
     }
 
     if (tokenAtStart !== searchToken) {
@@ -346,7 +346,7 @@ async function requestEngineMove() {
     const result = game.applyMove(selectedMove);
     if (result.ok) {
       lastMove = { from: selectedMove.from, to: selectedMove.to };
-      computerMoveKinds.set(historyPlyIndex, useEngineMove ? 'engine' : 'random');
+      computerMoveKinds.set(historyPlyIndex, useRandomMove ? 'random' : 'engine');
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -415,21 +415,21 @@ flipBoardBtn.addEventListener('click', () => {
   refresh();
 });
 
-dilutionSlider.addEventListener('input', (event) => {
-  setDilutionControls(Number(event.target.value));
+blunderSlider.addEventListener('input', (event) => {
+  setBlunderControls(Number(event.target.value));
 });
 
-dilutionInput.addEventListener('input', (event) => {
-  setDilutionControls(Number(event.target.value));
+blunderInput.addEventListener('input', (event) => {
+  setBlunderControls(Number(event.target.value));
 });
 
-dilutionInput.addEventListener('blur', () => {
-  setDilutionControls(Number(dilutionInput.value));
+blunderInput.addEventListener('blur', () => {
+  setBlunderControls(Number(blunderInput.value));
 });
 
 async function boot() {
   statusTextEl.textContent = 'Initializing Stockfish...';
-  setDilutionControls(100);
+  setBlunderControls(20);
 
   await engine.init();
   await engine.setSkillLevel(20);

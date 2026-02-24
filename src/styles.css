@@ -109,6 +109,7 @@ button:hover {
   border: 2px solid #32261d;
   border-radius: 6px;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 .square {
@@ -125,6 +126,7 @@ button:hover {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 .square.selected::after {
@@ -156,6 +158,7 @@ button:hover {
   z-index: 2;
   user-select: none;
   -webkit-user-drag: element;
+  touch-action: manipulation;
 }
 
 .coord {

@@ -28,6 +28,7 @@ let lastMove = null;
 let blunderChancePercent = 20;
 let computerMoveKinds = new Map();
 let revealBlunders = true;
+let lastBoardTouchEndTs = 0;
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
@@ -424,6 +425,22 @@ flipBoardBtn.addEventListener('click', () => {
   displayOrientation = displayOrientation === 'w' ? 'b' : 'w';
   refresh();
 });
+
+boardEl.addEventListener(
+  'touchend',
+  (event) => {
+    if (event.touches.length > 0) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastBoardTouchEndTs < 300) {
+      event.preventDefault();
+    }
+    lastBoardTouchEndTs = now;
+  },
+  { passive: false }
+);
 
 blunderSlider.addEventListener('input', (event) => {
   setBlunderControls(Number(event.target.value));

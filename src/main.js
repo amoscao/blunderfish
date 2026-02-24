@@ -9,6 +9,8 @@ const flipBoardBtn = document.querySelector('#flip-board-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
+const dilutionSlider = document.querySelector('#dilution-slider');
+const dilutionInput = document.querySelector('#dilution-input');
 
 const game = createGame();
 const engine = createEngine();
@@ -18,6 +20,7 @@ let searchToken = 0;
 let thinking = false;
 let pendingPromotion = null;
 let lastMove = null;
+let dilutionPercent = 100;
 
 const board = createBoard({
   container: boardEl,
@@ -30,6 +33,19 @@ function randomColor() {
 
 function colorName(color) {
   return color === 'w' ? 'White' : 'Black';
+}
+
+function clampDilution(value) {
+  if (Number.isNaN(value)) {
+    return dilutionPercent;
+  }
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function setDilutionControls(nextValue) {
+  dilutionPercent = clampDilution(nextValue);
+  dilutionSlider.value = String(dilutionPercent);
+  dilutionInput.value = String(dilutionPercent);
 }
 
 function statusReasonText(reason) {
@@ -262,8 +278,21 @@ flipBoardBtn.addEventListener('click', () => {
   refresh();
 });
 
+dilutionSlider.addEventListener('input', (event) => {
+  setDilutionControls(Number(event.target.value));
+});
+
+dilutionInput.addEventListener('input', (event) => {
+  setDilutionControls(Number(event.target.value));
+});
+
+dilutionInput.addEventListener('blur', () => {
+  setDilutionControls(Number(dilutionInput.value));
+});
+
 async function boot() {
   statusTextEl.textContent = 'Initializing Stockfish...';
+  setDilutionControls(100);
 
   await engine.init();
   await engine.setSkillLevel(20);

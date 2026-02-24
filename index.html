@@ -24,23 +24,55 @@
         <div class="board-wrap">
           <div id="board" class="board" aria-label="Chess board"></div>
         </div>
-        <aside class="moves-panel" aria-label="Move list">
-          <h2>Moves</h2>
-          <div class="moves-table-wrap">
-            <table class="moves-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>White</th>
-                  <th>Black</th>
-                </tr>
-              </thead>
-              <tbody id="moves-body"></tbody>
-            </table>
-          </div>
+        <aside class="right-column" aria-label="Controls and move list">
+          <section class="settings-panel" aria-label="Settings">
+            <h2>Settings</h2>
+            <label class="setting-label" for="dilution-slider">
+              Dilution Percentage (higher is smarter)
+            </label>
+            <div class="setting-row">
+              <input
+                id="dilution-slider"
+                class="dilution-slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="100"
+              />
+              <input
+                id="dilution-input"
+                class="dilution-input"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value="100"
+                inputmode="numeric"
+                aria-label="Dilution percentage"
+              />
+              <span class="percent-symbol">%</span>
+            </div>
+          </section>
+
+          <section class="moves-panel" aria-label="Move list">
+            <h2>Moves</h2>
+            <div class="moves-table-wrap">
+              <table class="moves-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>White</th>
+                    <th>Black</th>
+                  </tr>
+                </thead>
+                <tbody id="moves-body"></tbody>
+              </table>
+            </div>
+          </section>
         </aside>
       </section>
-
+      
       <footer class="footer">
         <a href="./CREDITS.md" target="_blank" rel="noreferrer">Asset and engine credits</a>
       </footer>

@@ -80,6 +80,13 @@ button:hover {
   align-items: stretch;
 }
 
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
 .board-wrap {
   background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
   border: 1px solid #463527;
@@ -222,6 +229,50 @@ button:hover {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
+}
+
+.settings-panel {
+  background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
+  border: 1px solid #463527;
+  border-radius: 12px;
+  padding: 0.75rem;
+}
+
+.settings-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.setting-label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.45rem;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dilution-slider {
+  flex: 1;
+  margin: 0;
+}
+
+.dilution-input {
+  width: 4.3rem;
+  padding: 0.28rem 0.35rem;
+  border: 1px solid #7d5e41;
+  border-radius: 6px;
+  background: #2a1f18;
+  color: var(--text);
+}
+
+.percent-symbol {
+  color: var(--text);
+  font-size: 0.95rem;
 }
 
 .moves-panel h2 {

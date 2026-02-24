@@ -5,6 +5,11 @@
   --accent: #d7a86e;
   --legal-dot: rgba(120, 120, 120, 0.5);
   --selected: rgba(215, 168, 110, 0.55);
+  --board-light: #eeeed2;
+  --board-dark: #769656;
+  --coord-on-light: #5e7f43;
+  --coord-on-dark: #d9e6c8;
+  --last-move: #c7d750;
 }
 
 * {
@@ -99,8 +104,6 @@ button:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-size: cover;
-  background-position: center;
   overflow: hidden;
 }
 
@@ -109,6 +112,18 @@ button:hover {
   position: absolute;
   inset: 0;
   background: var(--selected);
+}
+
+.square.light {
+  background-color: var(--board-light);
+}
+
+.square.dark {
+  background-color: var(--board-dark);
+}
+
+.square.last-move {
+  background-color: var(--last-move);
 }
 
 .piece {
@@ -121,6 +136,34 @@ button:hover {
   z-index: 2;
   user-select: none;
   -webkit-user-drag: element;
+}
+
+.coord {
+  position: absolute;
+  font-weight: 700;
+  font-size: clamp(0.7rem, 1.4vw, 1.9rem);
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.coord.light-text {
+  color: var(--coord-on-dark);
+}
+
+.coord.dark-text {
+  color: var(--coord-on-light);
+}
+
+.coord-rank {
+  top: 6%;
+  left: 6%;
+}
+
+.coord-file {
+  right: 6%;
+  bottom: 6%;
 }
 
 .legal-dot {

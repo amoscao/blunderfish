@@ -16,15 +16,10 @@ const PIECE_IMAGE_BY_CODE = {
   bk: 'b_king_png_128px.png'
 };
 
-const SQUARE_IMAGE_BY_COLOR = {
-  light: 'square_brown_light_png_128px.png',
-  dark: 'square_brown_dark_png_128px.png'
-};
-
 function squareColor(square) {
   const fileIndex = FILES.indexOf(square[0]);
   const rankNumber = Number(square[1]);
-  return (fileIndex + rankNumber) % 2 === 0 ? 'dark' : 'light';
+  return (fileIndex + rankNumber) % 2 === 1 ? 'dark' : 'light';
 }
 
 function squaresForOrientation(orientation) {
@@ -49,6 +44,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   let legalTargets = [];
   let getLegalTargets = () => [];
   let canSelectSquare = () => false;
+  let lastMove = null;
 
   function setMoveQueryHandlers(handlers) {
     getLegalTargets = handlers.getLegalTargets;
@@ -73,6 +69,10 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
   function setInteractionEnabled(enabled) {
     interactionEnabled = enabled;
+  }
+
+  function setLastMove(move) {
+    lastMove = move;
   }
 
   function onSquareClick(square) {
@@ -152,17 +152,28 @@ export function createBoard({ container, onHumanMoveAttempt }) {
       squareEl.className = `square ${squareColor(square)}`;
       squareEl.dataset.square = square;
       squareEl.setAttribute('aria-label', `Square ${square}`);
-      squareEl.style.backgroundImage = `url('${import.meta.env.BASE_URL}assets/chess/${
-        SQUARE_IMAGE_BY_COLOR[squareColor(square)]
-      }')`;
 
       squareEl.addEventListener('click', () => onSquareClick(square));
       squareEl.addEventListener('dragover', (event) => event.preventDefault());
       squareEl.addEventListener('drop', (event) => onSquareDrop(event, square));
 
+      if (lastMove && (square === lastMove.from || square === lastMove.to)) {
+        squareEl.classList.add('last-move');
+      }
+
       if (selectedSquare === square) {
         squareEl.classList.add('selected');
       }
+
+      const rankLabel = document.createElement('span');
+      rankLabel.className = `coord coord-rank ${squareColor(square) === 'dark' ? 'light-text' : 'dark-text'}`;
+      rankLabel.textContent = square[1];
+      squareEl.appendChild(rankLabel);
+
+      const fileLabel = document.createElement('span');
+      fileLabel.className = `coord coord-file ${squareColor(square) === 'dark' ? 'light-text' : 'dark-text'}`;
+      fileLabel.textContent = square[0];
+      squareEl.appendChild(fileLabel);
 
       if (legalTargets.includes(square)) {
         const dot = document.createElement('span');
@@ -189,6 +200,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   return {
     render,
     setInteractionEnabled,
+    setLastMove,
     setMoveQueryHandlers,
     showLegalTargets,
     clearLegalTargets,

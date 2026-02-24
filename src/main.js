@@ -16,6 +16,7 @@ let displayOrientation = 'w';
 let searchToken = 0;
 let thinking = false;
 let pendingPromotion = null;
+let lastMove = null;
 
 const board = createBoard({
   container: boardEl,
@@ -76,6 +77,7 @@ function updateStatus() {
 }
 
 function updateBoard() {
+  board.setLastMove(lastMove);
   board.render(game.getPosition(), displayOrientation);
   updateStatus();
 }
@@ -173,7 +175,10 @@ async function requestEngineMove() {
       return;
     }
 
-    game.applyMove(bestMove);
+    const result = game.applyMove(bestMove);
+    if (result.ok) {
+      lastMove = { from: bestMove.from, to: bestMove.to };
+    }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
   } finally {
@@ -200,9 +205,12 @@ async function handleHumanMoveAttempt({ from, to }) {
       refresh();
       return;
     }
+    lastMove = { from, to };
   } else if (!result.ok) {
     refresh();
     return;
+  } else {
+    lastMove = { from, to };
   }
 
   refresh();
@@ -213,6 +221,7 @@ async function startNewGame() {
   searchToken += 1;
   thinking = false;
   pendingPromotion = null;
+  lastMove = null;
 
   const humanColor = randomColor();
   game.newGame(humanColor);

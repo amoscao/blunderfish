@@ -148,6 +148,18 @@ button:hover {
   background-color: var(--last-move);
 }
 
+.square.king-win {
+  background-color: #37c95e;
+}
+
+.square.king-loss {
+  background-color: #e84a5f;
+}
+
+.square.king-draw {
+  background-color: #9ea3ad;
+}
+
 .piece {
   display: block;
   width: 70%;

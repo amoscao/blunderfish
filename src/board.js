@@ -45,6 +45,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   let getLegalTargets = () => [];
   let canSelectSquare = () => false;
   let lastMove = null;
+  let kingOutcomeByColor = { w: null, b: null };
 
   function setMoveQueryHandlers(handlers) {
     getLegalTargets = handlers.getLegalTargets;
@@ -73,6 +74,10 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
   function setLastMove(move) {
     lastMove = move;
+  }
+
+  function setKingOutcome(nextOutcomeByColor) {
+    kingOutcomeByColor = nextOutcomeByColor;
   }
 
   function onSquareClick(square) {
@@ -150,6 +155,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
       const squareShade = squareColor(square);
       const file = square[0];
       const rank = square[1];
+      const piece = position[square];
 
       const squareEl = document.createElement('button');
       squareEl.type = 'button';
@@ -167,6 +173,10 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
       if (selectedSquare === square) {
         squareEl.classList.add('selected');
+      }
+
+      if (piece?.type === 'k' && kingOutcomeByColor[piece.color]) {
+        squareEl.classList.add(`king-${kingOutcomeByColor[piece.color]}`);
       }
 
       const coordTextClass = squareShade === 'dark' ? 'light-text' : 'dark-text';
@@ -195,7 +205,6 @@ export function createBoard({ container, onHumanMoveAttempt }) {
         squareEl.appendChild(dot);
       }
 
-      const piece = position[square];
       if (piece) {
         const pieceCode = `${piece.color}${piece.type}`;
         const pieceEl = document.createElement('img');
@@ -215,6 +224,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
     render,
     setInteractionEnabled,
     setLastMove,
+    setKingOutcome,
     setMoveQueryHandlers,
     showLegalTargets,
     clearLegalTargets,

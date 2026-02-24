@@ -135,7 +135,19 @@ function updateStatus() {
 }
 
 function updateBoard() {
+  const status = game.getGameStatus();
+  const kingOutcome =
+    status.over && status.reason === 'checkmate'
+      ? {
+          w: status.result === 'w' ? 'win' : 'loss',
+          b: status.result === 'b' ? 'win' : 'loss'
+        }
+      : status.over && status.result === 'draw'
+        ? { w: 'draw', b: 'draw' }
+        : { w: null, b: null };
+
   board.setLastMove(lastMove);
+  board.setKingOutcome(kingOutcome);
   board.render(game.getPosition(), displayOrientation);
   updateStatus();
 }

@@ -28,6 +28,20 @@
           <div id="board" class="board" aria-label="Chess board"></div>
         </div>
         <aside class="right-column" aria-label="Controls and move list">
+          <section class="captures-panel" aria-label="Captures">
+            <h2>Captures</h2>
+            <div class="capture-row">
+              <span class="capture-label">Opponent</span>
+              <div id="opponent-captures" class="capture-icons"></div>
+              <span id="opponent-capture-score" class="capture-score">+0</span>
+            </div>
+            <div class="capture-row">
+              <span class="capture-label">You</span>
+              <div id="your-captures" class="capture-icons"></div>
+              <span id="your-capture-score" class="capture-score">+0</span>
+            </div>
+          </section>
+
           <section class="settings-panel" aria-label="Settings">
             <h2>Settings</h2>
             <label class="setting-label" for="blunder-slider">
@@ -60,20 +74,6 @@
               <input id="reveal-blunders" type="checkbox" checked />
               <span>Reveal Blunders</span>
             </label>
-          </section>
-
-          <section class="captures-panel" aria-label="Captures">
-            <h2>Captures</h2>
-            <div class="capture-row">
-              <span class="capture-label">Opponent</span>
-              <div id="opponent-captures" class="capture-icons"></div>
-              <span id="opponent-capture-score" class="capture-score">+0</span>
-            </div>
-            <div class="capture-row">
-              <span class="capture-label">You</span>
-              <div id="your-captures" class="capture-icons"></div>
-              <span id="your-capture-score" class="capture-score">+0</span>
-            </div>
           </section>
 
           <section class="moves-panel" aria-label="Move list">

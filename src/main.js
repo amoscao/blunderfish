@@ -96,7 +96,7 @@ function updateStatus() {
   const humanColor = game.getHumanColor();
 
   if (thinking) {
-    statusTextEl.textContent = `You are ${colorName(humanColor)}. Stockfish is thinking...`;
+    statusTextEl.textContent = `You are ${colorName(humanColor)}. Blunderfish is thinking...`;
     return;
   }
 

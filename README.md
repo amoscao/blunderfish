@@ -1,4 +1,4 @@
-# stockfish-dilution
+# blunderfish
 
 GitHub Pages chess app where the human plays against Stockfish at max configured difficulty.
 

@@ -165,6 +165,10 @@ export function createGame() {
     };
   }
 
+  function getMoveHistory() {
+    return chess.history();
+  }
+
   return {
     newGame,
     loadFen,
@@ -174,6 +178,7 @@ export function createGame() {
     getHumanColor,
     getLegalMoves,
     applyMove,
-    getGameStatus
+    getGameStatus,
+    getMoveHistory
   };
 }

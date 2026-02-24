@@ -73,6 +73,13 @@ button:hover {
   margin: 0;
 }
 
+.play-area {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
 .board-wrap {
   background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
   border: 1px solid #463527;
@@ -207,6 +214,45 @@ button:hover {
   height: 52px;
 }
 
+.moves-panel {
+  background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
+  border: 1px solid #463527;
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.moves-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.moves-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.moves-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.moves-table th,
+.moves-table td {
+  text-align: left;
+  padding: 0.28rem 0.2rem;
+  border-bottom: 1px solid rgba(239, 228, 214, 0.12);
+}
+
+.moves-table th:first-child,
+.moves-table td:first-child {
+  width: 2.1rem;
+}
+
 @media (max-width: 640px) {
   .app {
     width: 100%;
@@ -215,5 +261,9 @@ button:hover {
 
   h1 {
     font-size: 1.35rem;
+  }
+
+  .play-area {
+    grid-template-columns: 1fr;
   }
 }

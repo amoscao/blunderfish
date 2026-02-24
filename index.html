@@ -20,8 +20,25 @@
         <p id="status-text" aria-live="polite"></p>
       </section>
 
-      <section class="board-wrap">
-        <div id="board" class="board" aria-label="Chess board"></div>
+      <section class="play-area">
+        <div class="board-wrap">
+          <div id="board" class="board" aria-label="Chess board"></div>
+        </div>
+        <aside class="moves-panel" aria-label="Move list">
+          <h2>Moves</h2>
+          <div class="moves-table-wrap">
+            <table class="moves-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>White</th>
+                  <th>Black</th>
+                </tr>
+              </thead>
+              <tbody id="moves-body"></tbody>
+            </table>
+          </div>
+        </aside>
       </section>
 
       <footer class="footer">

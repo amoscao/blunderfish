@@ -8,6 +8,7 @@ const newGameBtn = document.querySelector('#new-game-btn');
 const flipBoardBtn = document.querySelector('#flip-board-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
+const movesBody = document.querySelector('#moves-body');
 
 const game = createGame();
 const engine = createEngine();
@@ -82,6 +83,21 @@ function updateBoard() {
   updateStatus();
 }
 
+function updateMovesTable() {
+  const history = game.getMoveHistory();
+  movesBody.innerHTML = '';
+
+  for (let i = 0; i < history.length; i += 2) {
+    const row = document.createElement('tr');
+    const moveNumber = Math.floor(i / 2) + 1;
+    const whiteMove = history[i] || '';
+    const blackMove = history[i + 1] || '';
+
+    row.innerHTML = `<td>${moveNumber}.</td><td>${whiteMove}</td><td>${blackMove}</td>`;
+    movesBody.appendChild(row);
+  }
+}
+
 function isHumanTurn() {
   return game.getTurn() === game.getHumanColor();
 }
@@ -110,6 +126,7 @@ function refresh() {
 
   updateInteractionMode();
   updateBoard();
+  updateMovesTable();
 }
 
 function showPromotionPicker(color) {

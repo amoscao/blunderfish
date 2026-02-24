@@ -17,6 +17,22 @@ export function parseBestMoveLine(line) {
   return { from, to, promotion };
 }
 
+function parseInfoScoreLine(line) {
+  if (!line || !line.startsWith('info ')) {
+    return null;
+  }
+
+  const match = line.match(/\bscore\s+(cp|mate)\s+(-?\d+)\b/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    type: match[1],
+    value: Number(match[2])
+  };
+}
+
 export function createEngine() {
   const workerUrl = `${import.meta.env.BASE_URL}stockfish/stockfish.wasm.js`;
   const worker = new Worker(workerUrl);
@@ -28,6 +44,9 @@ export function createEngine() {
 
     const nextPendingResolvers = [];
     for (const entry of pendingResolvers) {
+      if (entry.onLine) {
+        entry.onLine(line);
+      }
       if (entry.predicate(line)) {
         entry.resolve(line);
       } else {
@@ -42,7 +61,7 @@ export function createEngine() {
     worker.postMessage(command);
   }
 
-  function waitForLine(predicate, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  function waitForLine(predicate, timeoutMs = DEFAULT_TIMEOUT_MS, onLine = null) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         pendingResolvers = pendingResolvers.filter((entry) => entry !== resolverEntry);
@@ -51,6 +70,7 @@ export function createEngine() {
 
       const resolverEntry = {
         predicate,
+        onLine,
         resolve: (line) => {
           clearTimeout(timeout);
           resolve(line);
@@ -95,6 +115,29 @@ export function createEngine() {
     return move;
   }
 
+  async function analyzePosition(fen, movetimeMs = 1500) {
+    let latestScore = null;
+
+    send(`position fen ${fen}`);
+    send(`go movetime ${movetimeMs}`);
+    await waitForLine(
+      (line) => line.startsWith('bestmove '),
+      DEFAULT_TIMEOUT_MS,
+      (line) => {
+        const score = parseInfoScoreLine(line);
+        if (score) {
+          latestScore = score;
+        }
+      }
+    );
+
+    if (!latestScore) {
+      throw new Error('Unable to parse engine score from analysis');
+    }
+
+    return latestScore;
+  }
+
   function terminate() {
     worker.terminate();
   }
@@ -104,6 +147,7 @@ export function createEngine() {
     setSkillLevel,
     newGame,
     getBestMove,
+    analyzePosition,
     terminate
   };
 }

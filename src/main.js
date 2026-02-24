@@ -27,12 +27,14 @@ let pendingPromotion = null;
 let lastMove = null;
 let blunderChancePercent = 20;
 let computerMoveKinds = new Map();
+let randomMoveHurts = new Map();
 let revealBlunders = true;
 let lastBoardTouchEndTs = 0;
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
 const STARTING_COUNTS = { p: 8, b: 2, n: 2, r: 2, q: 1 };
+const CONFUSION_HURT_THRESHOLD_CP = 100;
 
 const board = createBoard({
   container: boardEl,
@@ -49,6 +51,35 @@ function colorName(color) {
 
 function oppositeColor(color) {
   return color === 'w' ? 'b' : 'w';
+}
+
+function scoreToColorPerspective(score, scoreSideToMove, targetColor) {
+  const multiplier = scoreSideToMove === targetColor ? 1 : -1;
+  return {
+    type: score.type,
+    value: score.value * multiplier
+  };
+}
+
+function scoreToComparableCp(score) {
+  if (score.type === 'cp') {
+    return score.value;
+  }
+
+  // Mate scores dominate any centipawn estimate.
+  return score.value > 0 ? 100000 : -100000;
+}
+
+function randomMoveHurtItself(preScoreForComputer, postScoreForComputer) {
+  const preLosingMate = preScoreForComputer.type === 'mate' && preScoreForComputer.value < 0;
+  const postLosingMate = postScoreForComputer.type === 'mate' && postScoreForComputer.value < 0;
+  if (!preLosingMate && postLosingMate) {
+    return true;
+  }
+
+  const preComparable = scoreToComparableCp(preScoreForComputer);
+  const postComparable = scoreToComparableCp(postScoreForComputer);
+  return preComparable - postComparable >= CONFUSION_HURT_THRESHOLD_CP;
 }
 
 function pieceImageName(color, type) {
@@ -127,7 +158,12 @@ function updateStatus() {
   const lastMoveIndex = history.length - 1;
   const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
   if (revealBlunders && lastMoveKind === 'random') {
-    statusTextEl.textContent = 'Your move. Blunderfish is confused! 🎲';
+    if (randomMoveHurts.get(lastMoveIndex)) {
+      statusTextEl.textContent =
+        'Your move. Blunderfish is confused! Blunderfish hurt itself in its confusion! 😖';
+    } else {
+      statusTextEl.textContent = 'Your move. Blunderfish is confused! 🎲';
+    }
     return;
   }
 
@@ -361,9 +397,15 @@ async function requestEngineMove() {
   try {
     const useRandomMove = Math.random() < blunderChancePercent / 100;
     const historyPlyIndex = game.getMoveHistory().length;
+    const humanColor = game.getHumanColor();
+    const computerColor = oppositeColor(humanColor);
     let selectedMove;
+    let preScoreForComputer = null;
 
     if (useRandomMove) {
+      const preScoreRaw = await engine.analyzePosition(game.getFen(), 350);
+      preScoreForComputer = scoreToColorPerspective(preScoreRaw, computerColor, computerColor);
+
       const legalMoves = game.getAllLegalMoves();
       if (legalMoves.length === 0) {
         refresh();
@@ -384,6 +426,17 @@ async function requestEngineMove() {
     if (result.ok) {
       lastMove = { from: selectedMove.from, to: selectedMove.to };
       computerMoveKinds.set(historyPlyIndex, useRandomMove ? 'random' : 'engine');
+
+      if (useRandomMove && preScoreForComputer) {
+        const postScoreRaw = await engine.analyzePosition(game.getFen(), 350);
+        const postScoreForComputer = scoreToColorPerspective(postScoreRaw, humanColor, computerColor);
+        randomMoveHurts.set(
+          historyPlyIndex,
+          randomMoveHurtItself(preScoreForComputer, postScoreForComputer)
+        );
+      } else {
+        randomMoveHurts.delete(historyPlyIndex);
+      }
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -429,6 +482,7 @@ async function startNewGame() {
   pendingPromotion = null;
   lastMove = null;
   computerMoveKinds = new Map();
+  randomMoveHurts = new Map();
 
   const humanColor = randomColor();
   game.newGame(humanColor);

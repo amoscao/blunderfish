@@ -102,14 +102,17 @@ function updateBoard() {
 function updateMovesTable() {
   const history = game.getMoveHistory();
   movesBody.innerHTML = '';
+  const lastMoveIndex = history.length - 1;
 
   for (let i = 0; i < history.length; i += 2) {
     const row = document.createElement('tr');
     const moveNumber = Math.floor(i / 2) + 1;
     const whiteMove = history[i] || '';
     const blackMove = history[i + 1] || '';
+    const whiteClass = i === lastMoveIndex ? ' class="latest-move-cell"' : '';
+    const blackClass = i + 1 === lastMoveIndex ? ' class="latest-move-cell"' : '';
 
-    row.innerHTML = `<td>${moveNumber}.</td><td>${whiteMove}</td><td>${blackMove}</td>`;
+    row.innerHTML = `<td>${moveNumber}.</td><td${whiteClass}>${whiteMove}</td><td${blackClass}>${blackMove}</td>`;
     movesBody.appendChild(row);
   }
 }

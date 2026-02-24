@@ -304,6 +304,11 @@ button:hover {
   width: 2.1rem;
 }
 
+.latest-move-cell {
+  background: rgba(199, 215, 80, 0.32);
+  border-radius: 4px;
+}
+
 @media (max-width: 640px) {
   .app {
     width: 100%;

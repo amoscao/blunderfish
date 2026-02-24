@@ -147,9 +147,13 @@ export function createBoard({ container, onHumanMoveAttempt }) {
     const squares = squaresForOrientation(orientation);
 
     for (const square of squares) {
+      const squareShade = squareColor(square);
+      const file = square[0];
+      const rank = square[1];
+
       const squareEl = document.createElement('button');
       squareEl.type = 'button';
-      squareEl.className = `square ${squareColor(square)}`;
+      squareEl.className = `square ${squareShade}`;
       squareEl.dataset.square = square;
       squareEl.setAttribute('aria-label', `Square ${square}`);
 
@@ -165,15 +169,23 @@ export function createBoard({ container, onHumanMoveAttempt }) {
         squareEl.classList.add('selected');
       }
 
-      const rankLabel = document.createElement('span');
-      rankLabel.className = `coord coord-rank ${squareColor(square) === 'dark' ? 'light-text' : 'dark-text'}`;
-      rankLabel.textContent = square[1];
-      squareEl.appendChild(rankLabel);
+      const coordTextClass = squareShade === 'dark' ? 'light-text' : 'dark-text';
+      const showRankLabel = file === 'a';
+      const showFileLabel = rank === '1';
 
-      const fileLabel = document.createElement('span');
-      fileLabel.className = `coord coord-file ${squareColor(square) === 'dark' ? 'light-text' : 'dark-text'}`;
-      fileLabel.textContent = square[0];
-      squareEl.appendChild(fileLabel);
+      if (showRankLabel) {
+        const rankLabel = document.createElement('span');
+        rankLabel.className = `coord coord-rank ${coordTextClass}`;
+        rankLabel.textContent = rank;
+        squareEl.appendChild(rankLabel);
+      }
+
+      if (showFileLabel) {
+        const fileLabel = document.createElement('span');
+        fileLabel.className = `coord coord-file ${coordTextClass}`;
+        fileLabel.textContent = file;
+        squareEl.appendChild(fileLabel);
+      }
 
       if (legalTargets.includes(square)) {
         const dot = document.createElement('span');

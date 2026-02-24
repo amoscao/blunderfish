@@ -1,19 +1,26 @@
-# blunderfish
+# Blunderfish
+Can you beat max difficulty stockfish if it randomly blunders?
 
-GitHub Pages chess app where the human plays against Stockfish at max configured difficulty.
+Play now: **https://amoscao.github.io/blunderfish/**
 
-## Local development
+Blunderfish is an implementation of the "diluted stockfish" concept from the video **"30 Weird Chess Algorithms: Elo World"** by suckerpinch:  
+https://www.youtube.com/watch?v=DpXy041BIlA
 
-1. Install Node.js 20+
-2. Install dependencies: `npm install`
-3. Run dev server: `npm run dev`
-4. Run tests: `npm test`
-5. Build: `npm run build`
+Stockfish still runs at max strength, but you control a configurable **Blunder Chance** that makes it play random legal moves some percentage of the time.  
+Sometimes it calculates like a machine. Sometimes it forgets what game it's playing.
 
-## GitHub Pages setup
+## Credits
 
-1. Open repository `Settings -> Pages`
-2. Set `Source` to `GitHub Actions`
-3. Push to `main`
+### Chess Engine
 
-The workflow in `.github/workflows/deploy-pages.yml` will build and deploy automatically.
+- **Stockfish** via `stockfish.js`
+- License: **GPL-3.0**
+- Package: https://www.npmjs.com/package/stockfish.js
+
+### Board + Piece Graphics
+
+- **Chess Pieces and Board Squares** by JohnPablok
+- Source: https://opengameart.org/content/chess-pieces-and-board-squares
+- License: **CC-BY-SA 3.0**
+
+For full attribution details in-project, see: `public/CREDITS.md`.

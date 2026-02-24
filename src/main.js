@@ -11,6 +11,7 @@ const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
 const blunderSlider = document.querySelector('#blunder-slider');
 const blunderInput = document.querySelector('#blunder-input');
+const revealBlundersCheckbox = document.querySelector('#reveal-blunders');
 const opponentCapturesEl = document.querySelector('#opponent-captures');
 const yourCapturesEl = document.querySelector('#your-captures');
 const opponentCaptureScoreEl = document.querySelector('#opponent-capture-score');
@@ -26,6 +27,7 @@ let pendingPromotion = null;
 let lastMove = null;
 let blunderChancePercent = 20;
 let computerMoveKinds = new Map();
+let revealBlunders = true;
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
@@ -138,6 +140,9 @@ function updateMovesTable() {
     }
 
     const kind = computerMoveKinds.get(index);
+    if (!revealBlunders) {
+      return move;
+    }
     if (kind === 'engine') {
       return `${move} 🧠`;
     }
@@ -432,9 +437,15 @@ blunderInput.addEventListener('blur', () => {
   setBlunderControls(Number(blunderInput.value));
 });
 
+revealBlundersCheckbox.addEventListener('change', (event) => {
+  revealBlunders = Boolean(event.target.checked);
+  updateMovesTable();
+});
+
 async function boot() {
   statusTextEl.textContent = 'Initializing Stockfish...';
   setBlunderControls(20);
+  revealBlunders = Boolean(revealBlundersCheckbox.checked);
 
   await engine.init();
   await engine.setSkillLevel(20);

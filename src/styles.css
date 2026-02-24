@@ -276,6 +276,15 @@ button:hover {
   font-size: 0.95rem;
 }
 
+.setting-checkbox {
+  margin-top: 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #dbc7af;
+}
+
 .captures-panel {
   background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
   border: 1px solid #463527;

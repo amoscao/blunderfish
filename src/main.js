@@ -127,7 +127,7 @@ function updateStatus() {
   const lastMoveIndex = history.length - 1;
   const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
   if (revealBlunders && lastMoveKind === 'random') {
-    statusTextEl.textContent = 'Your move. Stockfish blundered! 🎲';
+    statusTextEl.textContent = 'Your move. Blunderfish is confused! 🎲';
     return;
   }
 

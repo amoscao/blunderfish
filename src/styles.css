@@ -46,6 +46,12 @@ h1 {
   letter-spacing: 0.04em;
 }
 
+.subtitle {
+  margin: 0.35rem 0 0.25rem;
+  color: #d8c7b3;
+  font-size: 0.98rem;
+}
+
 .controls {
   display: flex;
   gap: 0.5rem;

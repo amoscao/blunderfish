@@ -21,6 +21,7 @@ let thinking = false;
 let pendingPromotion = null;
 let lastMove = null;
 let dilutionPercent = 100;
+let computerMoveKinds = new Map();
 
 const board = createBoard({
   container: boardEl,
@@ -33,6 +34,10 @@ function randomColor() {
 
 function colorName(color) {
   return color === 'w' ? 'White' : 'Black';
+}
+
+function oppositeColor(color) {
+  return color === 'w' ? 'b' : 'w';
 }
 
 function clampDilution(value) {
@@ -103,12 +108,31 @@ function updateMovesTable() {
   const history = game.getMoveHistory();
   movesBody.innerHTML = '';
   const lastMoveIndex = history.length - 1;
+  const computerColor = oppositeColor(game.getHumanColor());
+
+  function formatMove(index) {
+    const move = history[index] || '';
+    const isComputerMove =
+      (computerColor === 'w' && index % 2 === 0) || (computerColor === 'b' && index % 2 === 1);
+    if (!isComputerMove) {
+      return move;
+    }
+
+    const kind = computerMoveKinds.get(index);
+    if (kind === 'engine') {
+      return `${move} 🧠`;
+    }
+    if (kind === 'random') {
+      return `${move} 🎲`;
+    }
+    return move;
+  }
 
   for (let i = 0; i < history.length; i += 2) {
     const row = document.createElement('tr');
     const moveNumber = Math.floor(i / 2) + 1;
-    const whiteMove = history[i] || '';
-    const blackMove = history[i + 1] || '';
+    const whiteMove = formatMove(i);
+    const blackMove = i + 1 < history.length ? formatMove(i + 1) : '';
     const whiteClass = i === lastMoveIndex ? ' class="latest-move-cell"' : '';
     const blackClass = i + 1 === lastMoveIndex ? ' class="latest-move-cell"' : '';
 
@@ -205,15 +229,30 @@ async function requestEngineMove() {
   refresh();
 
   try {
-    const bestMove = await engine.getBestMove(game.getFen(), 1500);
+    const useEngineMove = Math.random() < dilutionPercent / 100;
+    const historyPlyIndex = game.getMoveHistory().length;
+    let selectedMove;
+
+    if (useEngineMove) {
+      selectedMove = await engine.getBestMove(game.getFen(), 1500);
+    } else {
+      const legalMoves = game.getAllLegalMoves();
+      if (legalMoves.length === 0) {
+        refresh();
+        return;
+      }
+      const choiceIndex = Math.floor(Math.random() * legalMoves.length);
+      selectedMove = legalMoves[choiceIndex];
+    }
 
     if (tokenAtStart !== searchToken) {
       return;
     }
 
-    const result = game.applyMove(bestMove);
+    const result = game.applyMove(selectedMove);
     if (result.ok) {
-      lastMove = { from: bestMove.from, to: bestMove.to };
+      lastMove = { from: selectedMove.from, to: selectedMove.to };
+      computerMoveKinds.set(historyPlyIndex, useEngineMove ? 'engine' : 'random');
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -258,6 +297,7 @@ async function startNewGame() {
   thinking = false;
   pendingPromotion = null;
   lastMove = null;
+  computerMoveKinds = new Map();
 
   const humanColor = randomColor();
   game.newGame(humanColor);

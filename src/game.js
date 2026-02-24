@@ -54,6 +54,16 @@ export function createGame() {
     }));
   }
 
+  function getAllLegalMoves() {
+    const verboseMoves = chess.moves({ verbose: true });
+    return verboseMoves.map((move) => ({
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion,
+      san: move.san
+    }));
+  }
+
   function applyMove({ from, to, promotion }) {
     const candidates = chess
       .moves({ square: from, verbose: true })
@@ -177,6 +187,7 @@ export function createGame() {
     getPosition,
     getHumanColor,
     getLegalMoves,
+    getAllLegalMoves,
     applyMove,
     getGameStatus,
     getMoveHistory

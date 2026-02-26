@@ -198,7 +198,7 @@ describe('blunder randomizer integration', () => {
     expect(document.querySelector('#status-text').textContent).toContain('FEN copied');
   });
 
-  test('eval bar shows white-perspective sign when player is white (engine black)', async () => {
+  test('eval bar shows human-perspective sign when player is white (engine black)', async () => {
     engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
     await import('../src/main.js');
 
@@ -237,6 +237,21 @@ describe('blunder randomizer integration', () => {
     await flushUi();
     await flushUi();
 
-    expect(document.querySelector('#eval-bar-label').textContent).toBe('-1.20');
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
+  });
+
+  test('eval bar label should be positive when human (black) is winning', async () => {
+    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'b';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
   });
 });

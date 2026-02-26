@@ -82,12 +82,7 @@ const subtitleEl = document.querySelector('.subtitle');
 const settingRowEl = blunderSlider.parentElement;
 const revealSettingCheckboxEl = revealBlundersCheckbox.parentElement;
 const rampReadonlySettingsEl = document.querySelector('#ramp-readonly-settings');
-const rampModeValueEl = document.querySelector('#ramp-mode-value');
 const rampTargetCpValueEl = document.querySelector('#ramp-target-cp-value');
-const rampSkillValueEl = document.querySelector('#ramp-skill-value');
-const rampDepthValueEl = document.querySelector('#ramp-depth-value');
-const rampMovetimeValueEl = document.querySelector('#ramp-movetime-value');
-const rampProgressValueEl = document.querySelector('#ramp-progress-value');
 const evalBarWrapEl = document.querySelector('#eval-bar-wrap');
 const evalBarWhiteFillEl = document.querySelector('#eval-bar-white-fill');
 const evalBarLabelEl = document.querySelector('#eval-bar-label');
@@ -189,7 +184,8 @@ function renderEvalBar() {
 
   const whitePct = scoreToWhitePercent(evalScoreForWhite);
   evalBarWhiteFillEl.style.width = `${whitePct}%`;
-  evalBarLabelEl.textContent = formatEvalLabel(evalScoreForWhite);
+  const scoreForHuman = scoreToColorPerspective(evalScoreForWhite, 'w', game.getHumanColor());
+  evalBarLabelEl.textContent = formatEvalLabel(scoreForHuman);
 }
 
 function scheduleEvalBarAnalysis() {
@@ -283,22 +279,23 @@ function setSettingControls(nextValue) {
   blunderInput.value = String(value);
 }
 
-function getRampModeLabel(direction) {
-  return direction === RAMP_DIRECTION.DOWN ? 'Ramp down' : 'Ramp up';
+function colorLabel(color) {
+  return color === 'w' ? 'White' : 'Black';
 }
 
-function formatTargetEvalPawns(cp) {
-  const pawns = cp / 100;
-  return `${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`;
+function formatTargetEvalWinnerCentric(cp) {
+  const engineColor = oppositeColor(game.getHumanColor());
+  const magnitude = (Math.abs(cp) / 100).toFixed(2);
+  if (cp === 0) {
+    return `Equal ${magnitude}`;
+  }
+
+  const winningColor = cp > 0 ? engineColor : oppositeColor(engineColor);
+  return `${colorLabel(winningColor)} +${magnitude}`;
 }
 
 function updateRampReadonlyDisplay() {
-  rampModeValueEl.textContent = getRampModeLabel(rampDirection);
-  rampTargetCpValueEl.textContent = `${formatTargetEvalPawns(lastRampTargetCp)} pawns`;
-  rampSkillValueEl.textContent = String(RAMP_MAX_SKILL_LEVEL);
-  rampDepthValueEl.textContent = 'Default';
-  rampMovetimeValueEl.textContent = `${RAMP_MAX_MOVETIME_MS}ms`;
-  rampProgressValueEl.textContent = `Engine turn ${computerEngineTurnCount} / ${rampFinalMove}`;
+  rampTargetCpValueEl.textContent = formatTargetEvalWinnerCentric(lastRampTargetCp);
 }
 
 function applyModeSettingsUi() {
@@ -306,12 +303,12 @@ function applyModeSettingsUi() {
   const isRampfish = activeMode === GAME_MODE.RAMPFISH;
 
   settingLabelEl.textContent = isRampfish
-    ? 'Rampfish controls'
+    ? 'Comebackfish controls'
     : isBlindfish
     ? 'Percentage of invisible pieces per turn'
     : 'Blunder Chance';
   revealSettingLabelEl.textContent = isBlindfish ? 'Reveal Blindness' : 'Reveal Blunders';
-  settingPercentSymbolEl.hidden = false;
+  settingPercentSymbolEl.hidden = isRampfish;
   settingLabelEl.hidden = isRampfish;
   settingRowEl.hidden = isRampfish;
   revealSettingCheckboxEl.hidden = isRampfish;
@@ -319,9 +316,9 @@ function applyModeSettingsUi() {
   blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
   neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
   rampReadonlySettingsEl.hidden = !isRampfish;
-  topbarTitleEl.textContent = isRampfish ? 'Rampfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
+  topbarTitleEl.textContent = isRampfish ? 'Comebackfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
   subtitleEl.textContent = isRampfish
-    ? 'Rampfish linearly changes Stockfish strength across its engine turns.'
+    ? 'Makes the comeback of the century.'
     : isBlindfish
     ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
     : 'Max difficulty stockfish but it is forced to randomly play blunders';
@@ -351,12 +348,12 @@ function showSetupScreen(mode) {
   const isRampfish = mode === GAME_MODE.RAMPFISH;
 
   setupTitleEl.textContent = isRampfish
-    ? 'Rampfish Settings'
+    ? 'Comebackfish Settings'
     : isBlindfish
       ? 'Blindfish Settings'
       : 'Blunderfish Settings';
   setupSubtitleEl.textContent = isRampfish
-    ? 'Choose how Rampfish should scale strength over its engine turns.'
+    ? 'Choose how Comebackfish should scale strength over its engine turns.'
     : isBlindfish
     ? 'Choose how Blindfish should forget pieces before the game starts.'
     : 'Choose how often Blunderfish should blunder before the game starts.';
@@ -471,7 +468,7 @@ function updateStatus() {
       activeMode === GAME_MODE.BLINDFISH
         ? 'Blindfish is thinking...'
         : activeMode === GAME_MODE.RAMPFISH
-          ? 'Rampfish is thinking...'
+          ? 'Comebackfish is thinking...'
           : 'Blunderfish is thinking...';
     return;
   }
@@ -1110,7 +1107,7 @@ async function boot() {
     activeMode === GAME_MODE.BLINDFISH
       ? 'Initializing Blindfish...'
       : activeMode === GAME_MODE.RAMPFISH
-        ? 'Initializing Rampfish...'
+        ? 'Initializing Comebackfish...'
         : 'Initializing Blunderfish...';
 
   applyModeSettingsUi();

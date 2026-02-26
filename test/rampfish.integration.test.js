@@ -154,6 +154,9 @@ describe('rampfish integration', () => {
     await import('../src/main.js');
 
     document.querySelector('#mode-rampfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'w';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#setup-start-btn').click();
     await flushUi();
     await flushUi();
@@ -165,18 +168,20 @@ describe('rampfish integration', () => {
     );
 
     expect(document.querySelector('#ramp-readonly-settings').hidden).toBe(false);
-    expect(document.querySelector('#ramp-mode-value').textContent).toBe('Ramp up');
-    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('-20.00 pawns');
-    expect(document.querySelector('#ramp-skill-value').textContent).toBe('20');
-    expect(document.querySelector('#ramp-depth-value').textContent).toBe('Default');
-    expect(document.querySelector('#ramp-movetime-value').textContent).toBe('1500ms');
-    expect(document.querySelector('#ramp-progress-value').textContent).toBe('Engine turn 1 / 40');
+    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('White +20.00');
+    expect(document.querySelector('#setting-label').hidden).toBe(true);
+    expect(document.querySelector('#blunder-slider').parentElement.hidden).toBe(true);
+    expect(document.querySelector('#reveal-blunders').parentElement.hidden).toBe(true);
+    expect(document.querySelector('#show-eval-bar').parentElement.hidden).toBe(false);
   });
 
   test('ramp down first engine turn targets +2000cp', async () => {
     await import('../src/main.js');
 
     document.querySelector('#mode-rampfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'w';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
     const direction = document.querySelector('#setup-ramp-direction');
     direction.value = 'down';
     direction.dispatchEvent(new Event('change', { bubbles: true }));
@@ -188,8 +193,7 @@ describe('rampfish integration', () => {
       '4k3/8/8/8/8/8/8/4K3 b - - 0 1',
       { movetimeMs: 1500, multiPv: 1 }
     );
-    expect(document.querySelector('#ramp-mode-value').textContent).toBe('Ramp down');
-    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('+20.00 pawns');
+    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('Black +20.00');
   });
 
   test('selects move by engine-perspective score distance to target eval', async () => {

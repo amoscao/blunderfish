@@ -3,6 +3,8 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -40,6 +42,7 @@ jobs:
           path: ./dist
 
   deploy:
+    if: github.event_name == 'push'
     permissions:
       pages: write
       id-token: write

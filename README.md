@@ -1,7 +1,7 @@
 # Blunderfish
 Can you beat max difficulty stockfish if it randomly blunders?
 
-Play now: **https://amoscao.github.io/blunderfish/**
+Play now: **https://blunderfish.com/**
 
 Blunderfish is an implementation of the "diluted stockfish" concept from the video **"30 Weird Chess Algorithms: Elo World"** by suckerpinch:  
 https://www.youtube.com/watch?v=DpXy041BIlA

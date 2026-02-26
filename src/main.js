@@ -1,6 +1,7 @@
 import { createBoard } from './board.js';
 import { createEngine } from './engine.js';
 import { createGame } from './game.js';
+import { createBlunderDecisionBag } from './blunder-bag.js';
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
@@ -30,6 +31,7 @@ let computerMoveKinds = new Map();
 let randomMoveHurts = new Map();
 let revealBlunders = true;
 let lastBoardTouchEndTs = 0;
+const blunderDecisionBag = createBlunderDecisionBag(20);
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
@@ -104,6 +106,7 @@ function setBlunderControls(nextValue) {
   blunderChancePercent = clampBlunderChance(nextValue);
   blunderSlider.value = String(blunderChancePercent);
   blunderInput.value = String(blunderChancePercent);
+  blunderDecisionBag.reset(blunderChancePercent);
 }
 
 function statusReasonText(reason) {
@@ -395,7 +398,7 @@ async function requestEngineMove() {
   refresh();
 
   try {
-    const useRandomMove = Math.random() < blunderChancePercent / 100;
+    const useRandomMove = blunderDecisionBag.next(blunderChancePercent);
     const historyPlyIndex = game.getMoveHistory().length;
     const humanColor = game.getHumanColor();
     const computerColor = oppositeColor(humanColor);
@@ -483,6 +486,7 @@ async function startNewGame() {
   lastMove = null;
   computerMoveKinds = new Map();
   randomMoveHurts = new Map();
+  blunderDecisionBag.reset(blunderChancePercent);
 
   const humanColor = randomColor();
   game.newGame(humanColor);

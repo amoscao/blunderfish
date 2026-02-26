@@ -6,15 +6,12 @@ Play now: **https://amoscao.github.io/blunderfish/**
 Blunderfish is an implementation of the "diluted stockfish" concept from the video **"30 Weird Chess Algorithms: Elo World"** by suckerpinch:  
 https://www.youtube.com/watch?v=DpXy041BIlA
 
-Stockfish still runs at max strength, but you control a configurable **Blunder Chance** that makes it play random legal moves some percentage of the time.  
-Sometimes it calculates like a machine. Sometimes it forgets what game it's playing.
-
 ## Game modes
 ### Blunderfish
-Max difficulty stockfish, but it is forced to randomly make a blunder.
+Max difficulty stockfish, but it is forced to randomly make a completely random legal move. This is often not a good move.
 
 ### Blindfish
-Max difficulty stockfish, but it randomly forgets about pieces on the board before evaluating its move
+Max difficulty stockfish, but it randomly forgets about pieces on the board before evaluating its move.
 
 ## Local Development
 

@@ -4,18 +4,18 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const smootherMock = vi.hoisted(() => ({
-  next: vi.fn(() => false),
-  reset: vi.fn()
-}));
-
 const engineMock = vi.hoisted(() => ({
   init: vi.fn().mockResolvedValue(undefined),
   setSkillLevel: vi.fn().mockResolvedValue(undefined),
   newGame: vi.fn().mockResolvedValue(undefined),
   getBestMove: vi.fn().mockResolvedValue({ from: 'a7', to: 'a6' }),
   analyzePosition: vi.fn().mockResolvedValue({ type: 'cp', value: 0 }),
-  getRankedMoves: vi.fn().mockResolvedValue([]),
+  getRankedMovesWithScores: vi
+    .fn()
+    .mockResolvedValue([
+      { rank: 1, move: { from: 'a7', to: 'a6' }, score: { type: 'cp', value: -1500 } },
+      { rank: 2, move: { from: 'a7', to: 'a5' }, score: { type: 'cp', value: 200 } }
+    ]),
   terminate: vi.fn()
 }));
 
@@ -26,6 +26,12 @@ const boardMock = vi.hoisted(() => ({
   setKingOutcome: vi.fn(),
   setBlindMarkers: vi.fn(),
   render: vi.fn()
+}));
+
+const gameApplyMoveMock = vi.hoisted(() => vi.fn());
+
+const gameConfig = vi.hoisted(() => ({
+  legalMoves: [{ from: 'a7', to: 'a6' }]
 }));
 
 function createGameDouble() {
@@ -58,12 +64,12 @@ function createGameDouble() {
       };
     },
     getLegalMoves: vi.fn().mockReturnValue([]),
-    getAllLegalMoves: vi.fn().mockReturnValue([{ from: 'a7', to: 'a6' }]),
-    applyMove() {
+    getAllLegalMoves: vi.fn(() => gameConfig.legalMoves),
+    applyMove: gameApplyMoveMock.mockImplementation(() => {
       history.push('a6');
       turn = turn === 'w' ? 'b' : 'w';
       return { ok: true };
-    },
+    }),
     isLegalMove: vi.fn().mockReturnValue(true),
     selectBlindSquares: vi.fn().mockReturnValue([]),
     buildBlindFen: vi.fn().mockReturnValue('4k3/8/8/8/8/8/8/4K3 b - - 0 1'),
@@ -78,7 +84,10 @@ function createGameDouble() {
 }
 
 vi.mock('../src/blunder-smoother.js', () => ({
-  createBlunderDecisionSmoother: vi.fn(() => smootherMock)
+  createBlunderDecisionSmoother: vi.fn(() => ({
+    next: vi.fn(() => false),
+    reset: vi.fn()
+  }))
 }));
 
 vi.mock('../src/engine.js', () => ({
@@ -109,10 +118,12 @@ async function flushUi() {
   await Promise.resolve();
 }
 
-describe('blunder randomizer integration', () => {
+describe('rampfish integration', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    gameApplyMoveMock.mockReset();
+    gameConfig.legalMoves = [{ from: 'a7', to: 'a6' }];
     loadIndexDom();
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -127,82 +138,72 @@ describe('blunder randomizer integration', () => {
         dispatchEvent: vi.fn()
       })
     });
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: vi.fn().mockResolvedValue(undefined)
-      }
-    });
   });
 
-  test('uses smoother decisions on engine turns', async () => {
+  test('shows ramp setup controls with expected defaults', async () => {
     await import('../src/main.js');
 
-    document.querySelector('#mode-blunderfish-btn').click();
+    document.querySelector('#mode-rampfish-btn').click();
+
+    expect(document.querySelector('#setup-ramp-settings').hidden).toBe(false);
+    expect(document.querySelector('#setup-ramp-direction').value).toBe('up');
+    expect(document.querySelector('#setup-ramp-final-move').value).toBe('40');
+  });
+
+  test('ramp up first engine turn uses max engine settings and target eval readout', async () => {
+    await import('../src/main.js');
+
+    document.querySelector('#mode-rampfish-btn').click();
     document.querySelector('#setup-start-btn').click();
     await flushUi();
     await flushUi();
 
-    expect(smootherMock.next).toHaveBeenCalled();
-  });
-
-  test('resets smoother when slider changes and on new game', async () => {
-    await import('../src/main.js');
-
-    document.querySelector('#mode-blunderfish-btn').click();
-    document.querySelector('#setup-start-btn').click();
-    await flushUi();
-    await flushUi();
-
-    const resetsAfterBoot = smootherMock.reset.mock.calls.length;
-
-    const slider = document.querySelector('#blunder-slider');
-    slider.value = '33';
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 1);
-
-    document.querySelector('#new-game-btn').click();
-    await flushUi();
-    expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 2);
-  });
-
-  test('eval bar is visible by default and requests eval analysis', async () => {
-    await import('../src/main.js');
-
-    document.querySelector('#mode-blunderfish-btn').click();
-    document.querySelector('#setup-start-btn').click();
-    await flushUi();
-    await flushUi();
-
-    const evalWrap = document.querySelector('#eval-bar-wrap');
-    expect(evalWrap.hidden).toBe(false);
-    expect(engineMock.analyzePosition).toHaveBeenCalled();
-    expect(document.querySelector('#eval-bar-label').textContent).toBe('+0.00');
-  });
-
-  test('exports current FEN to clipboard', async () => {
-    await import('../src/main.js');
-
-    document.querySelector('#mode-blunderfish-btn').click();
-    document.querySelector('#setup-start-btn').click();
-    await flushUi();
-    await flushUi();
-
-    const exportBtn = document.querySelector('#export-fen-btn');
-    exportBtn.click();
-    await flushUi();
-
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      '4k3/8/8/8/8/8/8/4K3 b - - 0 1'
+    expect(engineMock.setSkillLevel).toHaveBeenCalledWith(20);
+    expect(engineMock.getRankedMovesWithScores).toHaveBeenCalledWith(
+      '4k3/8/8/8/8/8/8/4K3 b - - 0 1',
+      { movetimeMs: 1500, multiPv: 1 }
     );
-    expect(document.querySelector('#status-text').textContent).toContain('FEN copied');
+
+    expect(document.querySelector('#ramp-readonly-settings').hidden).toBe(false);
+    expect(document.querySelector('#ramp-mode-value').textContent).toBe('Ramp up');
+    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('-20.00 pawns');
+    expect(document.querySelector('#ramp-skill-value').textContent).toBe('20');
+    expect(document.querySelector('#ramp-depth-value').textContent).toBe('Default');
+    expect(document.querySelector('#ramp-movetime-value').textContent).toBe('1500ms');
+    expect(document.querySelector('#ramp-progress-value').textContent).toBe('Engine turn 1 / 40');
   });
 
-  test('eval bar shows white-perspective sign when player is white (engine black)', async () => {
-    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
+  test('ramp down first engine turn targets +2000cp', async () => {
     await import('../src/main.js');
 
-    document.querySelector('#mode-blunderfish-btn').click();
+    document.querySelector('#mode-rampfish-btn').click();
+    const direction = document.querySelector('#setup-ramp-direction');
+    direction.value = 'down';
+    direction.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(engineMock.getRankedMovesWithScores).toHaveBeenCalledWith(
+      '4k3/8/8/8/8/8/8/4K3 b - - 0 1',
+      { movetimeMs: 1500, multiPv: 1 }
+    );
+    expect(document.querySelector('#ramp-mode-value').textContent).toBe('Ramp down');
+    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('+20.00 pawns');
+  });
+
+  test('selects move by engine-perspective score distance to target eval', async () => {
+    gameConfig.legalMoves = [
+      { from: 'a7', to: 'a6' },
+      { from: 'a7', to: 'a5' }
+    ];
+    engineMock.getRankedMovesWithScores.mockResolvedValueOnce([
+      { rank: 1, move: { from: 'a7', to: 'a6' }, score: { type: 'cp', value: -1800 } },
+      { rank: 2, move: { from: 'a7', to: 'a5' }, score: { type: 'cp', value: -1950 } }
+    ]);
+
+    await import('../src/main.js');
+    document.querySelector('#mode-rampfish-btn').click();
     const colorSelect = document.querySelector('#setup-color-select');
     colorSelect.value = 'w';
     colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -210,33 +211,11 @@ describe('blunder randomizer integration', () => {
     await flushUi();
     await flushUi();
 
-    const evalToggle = document.querySelector('#show-eval-bar');
-    evalToggle.checked = true;
-    evalToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushUi();
-    await flushUi();
-
-    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
-  });
-
-  test('eval bar shows white-perspective sign when player is black (engine white)', async () => {
-    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
-    await import('../src/main.js');
-
-    document.querySelector('#mode-blunderfish-btn').click();
-    const colorSelect = document.querySelector('#setup-color-select');
-    colorSelect.value = 'b';
-    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#setup-start-btn').click();
-    await flushUi();
-    await flushUi();
-
-    const evalToggle = document.querySelector('#show-eval-bar');
-    evalToggle.checked = true;
-    evalToggle.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushUi();
-    await flushUi();
-
-    expect(document.querySelector('#eval-bar-label').textContent).toBe('-1.20');
+    expect(engineMock.getRankedMovesWithScores).toHaveBeenCalledWith(
+      '4k3/8/8/8/8/8/8/4K3 b - - 0 1',
+      { movetimeMs: 1500, multiPv: 2 }
+    );
+    expect(gameApplyMoveMock).toHaveBeenCalledWith({ from: 'a7', to: 'a5' });
+    expect(engineMock.getBestMove).not.toHaveBeenCalled();
   });
 });

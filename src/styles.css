@@ -94,6 +94,11 @@ body {
   background: linear-gradient(180deg, #32261d 0%, #241b15 100%);
 }
 
+.mode-button-tertiary {
+  border-color: #4a6f66;
+  background: linear-gradient(180deg, #20342f 0%, #192824 100%);
+}
+
 .mode-name {
   display: block;
   font-size: 1.1rem;
@@ -214,6 +219,41 @@ button:hover {
   border: 1px solid #463527;
   border-radius: 12px;
   padding: 0.75rem;
+}
+
+.eval-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.eval-bar-wrap[hidden] {
+  display: none;
+}
+
+.eval-bar {
+  position: relative;
+  width: 100%;
+  height: 0.72rem;
+  border: 1px solid #5d4a3a;
+  border-radius: 999px;
+  background: #171310;
+  overflow: hidden;
+}
+
+.eval-bar-white-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ece7dd 0%, #ffffff 100%);
+  transition: width 150ms linear;
+}
+
+.eval-bar-label {
+  min-width: 3.5rem;
+  text-align: right;
+  font-size: 0.85rem;
+  color: #dbc7af;
+  font-variant-numeric: tabular-nums;
 }
 
 .board {
@@ -434,6 +474,22 @@ button:hover {
 .percent-symbol {
   color: var(--text);
   font-size: 0.95rem;
+}
+
+.ramp-readonly[hidden] {
+  display: none;
+}
+
+.ramp-readonly {
+  margin-top: 0.65rem;
+  border-top: 1px solid rgba(239, 228, 214, 0.12);
+  padding-top: 0.55rem;
+}
+
+.ramp-readonly-row {
+  margin: 0.3rem 0;
+  font-size: 0.9rem;
+  color: #dbc7af;
 }
 
 .setting-checkbox {

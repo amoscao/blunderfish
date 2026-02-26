@@ -35,6 +35,10 @@ describe('engine parse helpers', () => {
         from: 'a7',
         to: 'a8',
         promotion: 'q'
+      },
+      score: {
+        type: 'cp',
+        value: 22
       }
     });
   });

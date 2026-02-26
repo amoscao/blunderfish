@@ -36,6 +36,19 @@ function parseInfoScoreLine(line) {
   };
 }
 
+function parseInfoMultiPvRank(line) {
+  if (!line || !line.startsWith('info ')) {
+    return null;
+  }
+
+  const match = line.match(/\bmultipv\s+(\d+)\b/);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
+}
+
 export function parseInfoMultiPvLine(line) {
   if (!line || !line.startsWith('info ')) {
     return null;
@@ -55,7 +68,8 @@ export function parseInfoMultiPvLine(line) {
 
   return {
     rank: Number(rankMatch[1]),
-    move
+    move,
+    score: parseInfoScoreLine(line)
   };
 }
 
@@ -80,11 +94,29 @@ export function rankAndDedupeMoves(entries) {
   return result;
 }
 
+export function rankAndDedupeMoveEntries(entries) {
+  const sorted = [...entries].sort((a, b) => a.rank - b.rank);
+  const seen = new Set();
+  const result = [];
+
+  for (const entry of sorted) {
+    const key = moveKey(entry.move);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(entry);
+  }
+
+  return result;
+}
+
 export function createEngine() {
   const workerUrl = `${import.meta.env.BASE_URL}stockfish/stockfish.wasm.js`;
   const worker = new Worker(workerUrl);
 
   let pendingResolvers = [];
+  let appliedSkillLevel = null;
 
   worker.addEventListener('message', (event) => {
     const line = String(event.data || '');
@@ -136,10 +168,24 @@ export function createEngine() {
     await waitForLine((line) => line === 'readyok');
   }
 
+  function clampSkillLevel(level) {
+    const parsed = Number(level);
+    if (!Number.isFinite(parsed)) {
+      return 20;
+    }
+    return Math.max(0, Math.min(20, Math.round(parsed)));
+  }
+
   async function setSkillLevel(level = 20) {
-    send(`setoption name Skill Level value ${level}`);
+    const clampedLevel = clampSkillLevel(level);
+    if (appliedSkillLevel === clampedLevel) {
+      return;
+    }
+
+    send(`setoption name Skill Level value ${clampedLevel}`);
     send('isready');
     await waitForLine((line) => line === 'readyok');
+    appliedSkillLevel = clampedLevel;
   }
 
   async function newGame() {
@@ -148,9 +194,33 @@ export function createEngine() {
     await waitForLine((line) => line === 'readyok');
   }
 
-  async function getBestMove(fen, movetimeMs = 1500) {
+  function normalizeBestMoveSearchOptions(search) {
+    if (typeof search === 'number') {
+      return { movetimeMs: search, depth: null, legacyMovetime: true };
+    }
+
+    if (!search || typeof search !== 'object') {
+      return { movetimeMs: 1500, depth: null, legacyMovetime: false };
+    }
+
+    const movetimeMs =
+      Number.isFinite(Number(search.movetimeMs)) && Number(search.movetimeMs) > 0
+        ? Math.round(Number(search.movetimeMs))
+        : 1500;
+    const depthRaw = Number(search.depth);
+    const depth = Number.isFinite(depthRaw) && depthRaw > 0 ? Math.round(depthRaw) : null;
+
+    return { movetimeMs, depth, legacyMovetime: false };
+  }
+
+  async function getBestMove(fen, search = 1500) {
+    const options = normalizeBestMoveSearchOptions(search);
     send(`position fen ${fen}`);
-    send(`go movetime ${movetimeMs}`);
+    if (options.depth !== null && !options.legacyMovetime) {
+      send(`go depth ${options.depth} movetime ${options.movetimeMs}`);
+    } else {
+      send(`go movetime ${options.movetimeMs}`);
+    }
 
     const bestMoveLine = await waitForLine((line) => line.startsWith('bestmove '));
     const move = parseBestMoveLine(bestMoveLine);
@@ -162,13 +232,19 @@ export function createEngine() {
     return move;
   }
 
-  async function getRankedMoves(fen, { movetimeMs = 1500, multiPv = 8 } = {}) {
+  async function getRankedMovesWithScores(fen, { movetimeMs = 1500, multiPv = 8, depth = null } = {}) {
     const requestedMultiPv = Math.max(1, Math.floor(multiPv));
+    const requestedDepth =
+      Number.isFinite(Number(depth)) && Number(depth) > 0 ? Math.floor(Number(depth)) : null;
     const rankedBySlot = new Map();
 
     send(`setoption name MultiPV value ${requestedMultiPv}`);
     send(`position fen ${fen}`);
-    send(`go movetime ${movetimeMs}`);
+    if (requestedDepth !== null) {
+      send(`go depth ${requestedDepth} movetime ${movetimeMs}`);
+    } else {
+      send(`go movetime ${movetimeMs}`);
+    }
 
     const bestMoveLine = await waitForLine(
       (line) => line.startsWith('bestmove '),
@@ -176,18 +252,27 @@ export function createEngine() {
       (line) => {
         const parsed = parseInfoMultiPvLine(line);
         if (parsed) {
-          rankedBySlot.set(parsed.rank, parsed.move);
+          rankedBySlot.set(parsed.rank, parsed);
         }
       }
     );
 
     const bestMove = parseBestMoveLine(bestMoveLine);
     if (bestMove && !rankedBySlot.has(1)) {
-      rankedBySlot.set(1, bestMove);
+      rankedBySlot.set(1, {
+        rank: 1,
+        move: bestMove,
+        score: null
+      });
     }
 
-    const entries = Array.from(rankedBySlot.entries()).map(([rank, move]) => ({ rank, move }));
-    return rankAndDedupeMoves(entries);
+    const entries = Array.from(rankedBySlot.values());
+    return rankAndDedupeMoveEntries(entries);
+  }
+
+  async function getRankedMoves(fen, options = {}) {
+    const entries = await getRankedMovesWithScores(fen, options);
+    return entries.map((entry) => entry.move);
   }
 
   async function analyzePosition(fen, movetimeMs = 1500) {
@@ -201,7 +286,10 @@ export function createEngine() {
       (line) => {
         const score = parseInfoScoreLine(line);
         if (score) {
-          latestScore = score;
+          const multipvRank = parseInfoMultiPvRank(line);
+          if (multipvRank === null || multipvRank === 1) {
+            latestScore = score;
+          }
         }
       }
     );
@@ -223,6 +311,7 @@ export function createEngine() {
     newGame,
     getBestMove,
     getRankedMoves,
+    getRankedMovesWithScores,
     analyzePosition,
     terminate
   };

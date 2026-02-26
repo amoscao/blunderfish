@@ -3,10 +3,18 @@ import { createEngine } from './engine.js';
 import { createGame } from './game.js';
 import { chooseBlindfishMoveWithRetries } from './blindfish.js';
 import { createBlunderDecisionSmoother } from './blunder-smoother.js';
+import { formatEvalLabel, scoreToWhitePercent } from './eval-bar.js';
+import {
+  RAMP_DIRECTION,
+  RAMP_DEFAULT_FINAL_MOVE,
+  clampFinalMove,
+  computeTargetEvalCp
+} from './rampfish.js';
 
 const GAME_MODE = {
   BLUNDERFISH: 'blunderfish',
-  BLINDFISH: 'blindfish'
+  BLINDFISH: 'blindfish',
+  RAMPFISH: 'rampfish'
 };
 
 const BLUNDER_CHANCE_DEFAULT = 20;
@@ -14,6 +22,8 @@ const PIECE_BLINDNESS_DEFAULT = 10;
 const BLINDNESS_MAX = 20;
 const BLUNDER_MAX = 100;
 const MAX_BLIND_RETRIES = 3;
+const RAMP_MAX_SKILL_LEVEL = 20;
+const RAMP_MAX_MOVETIME_MS = 1500;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
@@ -22,6 +32,7 @@ const rightColumnEl = document.querySelector('.right-column');
 const gameAppEl = document.querySelector('#game-app');
 const newGameBtn = document.querySelector('#new-game-btn');
 const flipBoardBtn = document.querySelector('#flip-board-btn');
+const exportFenBtn = document.querySelector('#export-fen-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
@@ -29,6 +40,7 @@ const movesTableWrapEl = document.querySelector('.moves-table-wrap');
 const blunderSlider = document.querySelector('#blunder-slider');
 const blunderInput = document.querySelector('#blunder-input');
 const revealBlundersCheckbox = document.querySelector('#reveal-blunders');
+const showEvalBarCheckbox = document.querySelector('#show-eval-bar');
 const blindToYourPiecesCheckbox = document.querySelector('#blind-to-your-pieces');
 const blindToOwnPiecesCheckbox = document.querySelector('#blind-to-own-pieces');
 const neverBlindLastMovedCheckbox = document.querySelector('#never-blind-last-moved');
@@ -43,6 +55,7 @@ const modeSelectScreenEl = document.querySelector('#mode-select-screen');
 const setupScreenEl = document.querySelector('#setup-screen');
 const modeBlunderfishBtn = document.querySelector('#mode-blunderfish-btn');
 const modeBlindfishBtn = document.querySelector('#mode-blindfish-btn');
+const modeRampfishBtn = document.querySelector('#mode-rampfish-btn');
 const modeSelectNoteEl = document.querySelector('#mode-select-note');
 const setupTitleEl = document.querySelector('#setup-title');
 const setupSubtitleEl = document.querySelector('#setup-subtitle');
@@ -58,11 +71,26 @@ const setupBlindToYourPiecesEl = document.querySelector('#setup-blind-to-your-pi
 const setupBlindToOwnPiecesEl = document.querySelector('#setup-blind-to-own-pieces');
 const setupNeverBlindLastMovedEl = document.querySelector('#setup-never-blind-last-moved');
 const setupRevealBlindnessEl = document.querySelector('#setup-reveal-blindness');
+const setupRampSettingsEl = document.querySelector('#setup-ramp-settings');
+const setupRampDirectionEl = document.querySelector('#setup-ramp-direction');
+const setupRampFinalMoveEl = document.querySelector('#setup-ramp-final-move');
 const setupColorSelectEl = document.querySelector('#setup-color-select');
 const setupBackBtn = document.querySelector('#setup-back-btn');
 const setupStartBtn = document.querySelector('#setup-start-btn');
 const topbarTitleEl = document.querySelector('.topbar h1');
 const subtitleEl = document.querySelector('.subtitle');
+const settingRowEl = blunderSlider.parentElement;
+const revealSettingCheckboxEl = revealBlundersCheckbox.parentElement;
+const rampReadonlySettingsEl = document.querySelector('#ramp-readonly-settings');
+const rampModeValueEl = document.querySelector('#ramp-mode-value');
+const rampTargetCpValueEl = document.querySelector('#ramp-target-cp-value');
+const rampSkillValueEl = document.querySelector('#ramp-skill-value');
+const rampDepthValueEl = document.querySelector('#ramp-depth-value');
+const rampMovetimeValueEl = document.querySelector('#ramp-movetime-value');
+const rampProgressValueEl = document.querySelector('#ramp-progress-value');
+const evalBarWrapEl = document.querySelector('#eval-bar-wrap');
+const evalBarWhiteFillEl = document.querySelector('#eval-bar-white-fill');
+const evalBarLabelEl = document.querySelector('#eval-bar-label');
 
 const game = createGame();
 const engine = createEngine();
@@ -78,12 +106,25 @@ let pieceBlindnessPercent = PIECE_BLINDNESS_DEFAULT;
 let computerMoveKinds = new Map();
 let randomMoveHurts = new Map();
 let revealEngineHints = true;
+let showEvalBar = false;
 let neverBlindLastMovedPiece = true;
 let preferredHumanColor = 'random';
+let rampDirection = RAMP_DIRECTION.UP;
+let rampFinalMove = RAMP_DEFAULT_FINAL_MOVE;
+let computerEngineTurnCount = 0;
+let lastRampTargetCp = computeTargetEvalCp({
+  direction: rampDirection,
+  engineTurnIndex: 1,
+  finalMove: rampFinalMove
+});
 let lastBoardTouchEndTs = 0;
 let gameStarted = false;
 let currentBlindSquares = new Set();
 let blindSelectionTurnToken = 0;
+let evalScoreForWhite = { type: 'cp', value: 0 };
+let lastEvaluatedFen = null;
+let evalAnalysisBusy = false;
+let evalAnalysisToken = 0;
 const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
@@ -108,20 +149,16 @@ function oppositeColor(color) {
   return color === 'w' ? 'b' : 'w';
 }
 
+function moveKey(move) {
+  return `${move.from}${move.to}${move.promotion || ''}`;
+}
+
 function scoreToColorPerspective(score, scoreSideToMove, targetColor) {
   const multiplier = scoreSideToMove === targetColor ? 1 : -1;
   return {
     type: score.type,
     value: score.value * multiplier
   };
-}
-
-function scoreToComparableCp(score) {
-  if (score.type === 'cp') {
-    return score.value;
-  }
-
-  return score.value > 0 ? 100000 : -100000;
 }
 
 function randomMoveHurtItself(preScoreForComputer, postScoreForComputer) {
@@ -136,6 +173,60 @@ function randomMoveHurtItself(preScoreForComputer, postScoreForComputer) {
   return preComparable - postComparable >= CONFUSION_HURT_THRESHOLD_CP;
 }
 
+function scoreToComparableCp(score) {
+  if (score.type === 'cp') {
+    return score.value;
+  }
+
+  return score.value > 0 ? 100000 : -100000;
+}
+
+function renderEvalBar() {
+  evalBarWrapEl.hidden = !showEvalBar;
+  if (!showEvalBar) {
+    return;
+  }
+
+  const whitePct = scoreToWhitePercent(evalScoreForWhite);
+  evalBarWhiteFillEl.style.width = `${whitePct}%`;
+  evalBarLabelEl.textContent = formatEvalLabel(evalScoreForWhite);
+}
+
+function scheduleEvalBarAnalysis() {
+  if (!showEvalBar || thinking || !isHumanTurn() || game.getGameStatus().over) {
+    return;
+  }
+
+  const fen = game.getFen();
+  if (evalAnalysisBusy || fen === lastEvaluatedFen) {
+    return;
+  }
+
+  const analysisToken = ++evalAnalysisToken;
+  evalAnalysisBusy = true;
+
+  engine
+    .analyzePosition(fen, 350)
+    .then((rawScore) => {
+      if (analysisToken !== evalAnalysisToken) {
+        return;
+      }
+      evalScoreForWhite = scoreToColorPerspective(rawScore, game.getTurn(), 'w');
+      lastEvaluatedFen = fen;
+      renderEvalBar();
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (analysisToken !== evalAnalysisToken) {
+        return;
+      }
+      evalAnalysisBusy = false;
+      if (showEvalBar && !thinking && isHumanTurn() && game.getFen() !== lastEvaluatedFen) {
+        scheduleEvalBarAnalysis();
+      }
+    });
+}
+
 function pieceImageName(color, type) {
   const nameByType = {
     p: 'pawn',
@@ -148,11 +239,23 @@ function pieceImageName(color, type) {
 }
 
 function getSettingMax() {
-  return activeMode === GAME_MODE.BLINDFISH ? BLINDNESS_MAX : BLUNDER_MAX;
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    return BLINDNESS_MAX;
+  }
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return 0;
+  }
+  return BLUNDER_MAX;
 }
 
 function getCurrentSettingValue() {
-  return activeMode === GAME_MODE.BLINDFISH ? pieceBlindnessPercent : blunderChancePercent;
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    return pieceBlindnessPercent;
+  }
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return 0;
+  }
+  return blunderChancePercent;
 }
 
 function clampSettingValue(value) {
@@ -164,6 +267,10 @@ function clampSettingValue(value) {
 }
 
 function setSettingControls(nextValue) {
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return;
+  }
+
   const value = clampSettingValue(nextValue);
   if (activeMode === GAME_MODE.BLINDFISH) {
     pieceBlindnessPercent = value;
@@ -176,25 +283,56 @@ function setSettingControls(nextValue) {
   blunderInput.value = String(value);
 }
 
+function getRampModeLabel(direction) {
+  return direction === RAMP_DIRECTION.DOWN ? 'Ramp down' : 'Ramp up';
+}
+
+function formatTargetEvalPawns(cp) {
+  const pawns = cp / 100;
+  return `${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`;
+}
+
+function updateRampReadonlyDisplay() {
+  rampModeValueEl.textContent = getRampModeLabel(rampDirection);
+  rampTargetCpValueEl.textContent = `${formatTargetEvalPawns(lastRampTargetCp)} pawns`;
+  rampSkillValueEl.textContent = String(RAMP_MAX_SKILL_LEVEL);
+  rampDepthValueEl.textContent = 'Default';
+  rampMovetimeValueEl.textContent = `${RAMP_MAX_MOVETIME_MS}ms`;
+  rampProgressValueEl.textContent = `Engine turn ${computerEngineTurnCount} / ${rampFinalMove}`;
+}
+
 function applyModeSettingsUi() {
   const isBlindfish = activeMode === GAME_MODE.BLINDFISH;
+  const isRampfish = activeMode === GAME_MODE.RAMPFISH;
 
-  settingLabelEl.textContent = isBlindfish
+  settingLabelEl.textContent = isRampfish
+    ? 'Rampfish controls'
+    : isBlindfish
     ? 'Percentage of invisible pieces per turn'
     : 'Blunder Chance';
   revealSettingLabelEl.textContent = isBlindfish ? 'Reveal Blindness' : 'Reveal Blunders';
   settingPercentSymbolEl.hidden = false;
+  settingLabelEl.hidden = isRampfish;
+  settingRowEl.hidden = isRampfish;
+  revealSettingCheckboxEl.hidden = isRampfish;
   blindToYourPiecesCheckbox.parentElement.hidden = !isBlindfish;
   blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
   neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
-  topbarTitleEl.textContent = isBlindfish ? 'Blindfish' : 'Blunderfish';
-  subtitleEl.textContent = isBlindfish
+  rampReadonlySettingsEl.hidden = !isRampfish;
+  topbarTitleEl.textContent = isRampfish ? 'Rampfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
+  subtitleEl.textContent = isRampfish
+    ? 'Rampfish linearly changes Stockfish strength across its engine turns.'
+    : isBlindfish
     ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
     : 'Max difficulty stockfish but it is forced to randomly play blunders';
 
-  blunderSlider.max = String(getSettingMax());
-  blunderInput.max = String(getSettingMax());
-  setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+  if (!isRampfish) {
+    blunderSlider.max = String(getSettingMax());
+    blunderInput.max = String(getSettingMax());
+    setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+  }
+
+  updateRampReadonlyDisplay();
 }
 
 function updateSetupPreviewValues() {
@@ -210,14 +348,22 @@ function showModeSelectionScreen() {
 function showSetupScreen(mode) {
   activeMode = mode;
   const isBlindfish = mode === GAME_MODE.BLINDFISH;
+  const isRampfish = mode === GAME_MODE.RAMPFISH;
 
-  setupTitleEl.textContent = isBlindfish ? 'Blindfish Settings' : 'Blunderfish Settings';
-  setupSubtitleEl.textContent = isBlindfish
+  setupTitleEl.textContent = isRampfish
+    ? 'Rampfish Settings'
+    : isBlindfish
+      ? 'Blindfish Settings'
+      : 'Blunderfish Settings';
+  setupSubtitleEl.textContent = isRampfish
+    ? 'Choose how Rampfish should scale strength over its engine turns.'
+    : isBlindfish
     ? 'Choose how Blindfish should forget pieces before the game starts.'
     : 'Choose how often Blunderfish should blunder before the game starts.';
 
-  setupBlunderSettingsEl.hidden = isBlindfish;
+  setupBlunderSettingsEl.hidden = isBlindfish || isRampfish;
   setupBlindSettingsEl.hidden = !isBlindfish;
+  setupRampSettingsEl.hidden = !isRampfish;
   setupFirstGameHintEl.hidden = !isBlindfish;
 
   setupBlunderSliderEl.value = String(blunderChancePercent);
@@ -227,6 +373,8 @@ function showSetupScreen(mode) {
   setupBlindToOwnPiecesEl.checked = blindToOwnPiecesCheckbox.checked;
   setupNeverBlindLastMovedEl.checked = neverBlindLastMovedPiece;
   setupRevealBlindnessEl.checked = revealEngineHints;
+  setupRampDirectionEl.value = rampDirection;
+  setupRampFinalMoveEl.value = String(rampFinalMove);
   setupColorSelectEl.value = preferredHumanColor;
   updateSetupPreviewValues();
 
@@ -253,6 +401,24 @@ function applySetupSelections() {
     blindToOwnPiecesCheckbox.checked = true;
     neverBlindLastMovedPiece = true;
     neverBlindLastMovedCheckbox.checked = true;
+  }
+
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    rampDirection =
+      setupRampDirectionEl.value === RAMP_DIRECTION.DOWN ? RAMP_DIRECTION.DOWN : RAMP_DIRECTION.UP;
+    rampFinalMove = clampFinalMove(setupRampFinalMoveEl.value);
+    setupRampFinalMoveEl.value = String(rampFinalMove);
+    revealEngineHints = false;
+    revealBlundersCheckbox.checked = false;
+    blindToYourPiecesCheckbox.checked = true;
+    blindToOwnPiecesCheckbox.checked = true;
+    neverBlindLastMovedPiece = true;
+    neverBlindLastMovedCheckbox.checked = true;
+    lastRampTargetCp = computeTargetEvalCp({
+      direction: rampDirection,
+      engineTurnIndex: 1,
+      finalMove: rampFinalMove
+    });
   }
 }
 
@@ -302,7 +468,11 @@ function updateStatus() {
 
   if (!isHumanToMove) {
     statusTextEl.textContent =
-      activeMode === GAME_MODE.BLINDFISH ? 'Blindfish is thinking...' : 'Blunderfish is thinking...';
+      activeMode === GAME_MODE.BLINDFISH
+        ? 'Blindfish is thinking...'
+        : activeMode === GAME_MODE.RAMPFISH
+          ? 'Rampfish is thinking...'
+          : 'Blunderfish is thinking...';
     return;
   }
 
@@ -445,6 +615,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  if (typeof document.execCommand === 'function') {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  }
+
+  return false;
+}
+
 function updateCapturesPanel() {
   const position = game.getPosition();
   const humanColor = game.getHumanColor();
@@ -490,6 +682,10 @@ function syncDesktopColumnHeights() {
 }
 
 function refresh() {
+  updateRampReadonlyDisplay();
+  renderEvalBar();
+  scheduleEvalBarAnalysis();
+
   board.setMoveQueryHandlers({
     canSelectSquare: (_square, piece) => {
       return canInteract() && piece.color === game.getHumanColor();
@@ -659,6 +855,76 @@ async function requestEngineMove() {
       }
       computerMoveKinds.set(historyPlyIndex, 'blind');
       randomMoveHurts.delete(historyPlyIndex);
+    } else if (activeMode === GAME_MODE.RAMPFISH) {
+      const legalMoves = game.getAllLegalMoves();
+      if (legalMoves.length === 0) {
+        refresh();
+        return;
+      }
+
+      computerEngineTurnCount += 1;
+      lastRampTargetCp = computeTargetEvalCp({
+        direction: rampDirection,
+        engineTurnIndex: computerEngineTurnCount,
+        finalMove: rampFinalMove
+      });
+      refresh();
+
+      await engine.setSkillLevel(RAMP_MAX_SKILL_LEVEL);
+      const rankedEntries = await engine.getRankedMovesWithScores(game.getFen(), {
+        movetimeMs: RAMP_MAX_MOVETIME_MS,
+        multiPv: legalMoves.length
+      });
+      const legalByKey = new Map(legalMoves.map((move) => [moveKey(move), move]));
+      const orderedEntries = [];
+      const seen = new Set();
+
+      for (const entry of rankedEntries) {
+        const key = moveKey(entry.move);
+        if (!legalByKey.has(key) || seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        orderedEntries.push({
+          move: legalByKey.get(key),
+          rank: entry.rank,
+          score: entry.score
+        });
+      }
+
+      for (const move of legalMoves) {
+        const key = moveKey(move);
+        if (seen.has(key)) {
+          continue;
+        }
+        orderedEntries.push({
+          move,
+          rank: Number.MAX_SAFE_INTEGER,
+          score: null
+        });
+      }
+
+      let bestEntry = null;
+      for (const entry of orderedEntries) {
+        if (!entry.score) {
+          continue;
+        }
+        const scoreForComputer = scoreToColorPerspective(entry.score, game.getTurn(), computerColor);
+        const scoreCpComparable = scoreToComparableCp(scoreForComputer);
+        const distance = Math.abs(scoreCpComparable - lastRampTargetCp);
+
+        if (
+          !bestEntry ||
+          distance < bestEntry.distance ||
+          (distance === bestEntry.distance && entry.rank < bestEntry.rank)
+        ) {
+          bestEntry = { ...entry, distance };
+        }
+      }
+
+      selectedMove = bestEntry ? bestEntry.move : orderedEntries[0]?.move || legalMoves[0];
+      computerMoveKinds.set(historyPlyIndex, 'ramp');
+      randomMoveHurts.delete(historyPlyIndex);
     } else {
       const useRandomMove = blunderDecisionSmoother.next(blunderChancePercent);
 
@@ -747,6 +1013,16 @@ async function startNewGame() {
   randomMoveHurts = new Map();
   currentBlindSquares = new Set();
   blunderDecisionSmoother.reset();
+  evalAnalysisToken += 1;
+  evalAnalysisBusy = false;
+  evalScoreForWhite = { type: 'cp', value: 0 };
+  lastEvaluatedFen = null;
+  computerEngineTurnCount = 0;
+  lastRampTargetCp = computeTargetEvalCp({
+    direction: rampDirection,
+    engineTurnIndex: 1,
+    finalMove: rampFinalMove
+  });
 
   const humanColor =
     preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;
@@ -769,6 +1045,16 @@ newGameBtn.addEventListener('click', () => {
 flipBoardBtn.addEventListener('click', () => {
   displayOrientation = displayOrientation === 'w' ? 'b' : 'w';
   refresh();
+});
+
+exportFenBtn.addEventListener('click', async () => {
+  const fen = game.getFen();
+  try {
+    const copied = await copyTextToClipboard(fen);
+    statusTextEl.textContent = copied ? 'FEN copied to clipboard.' : `FEN: ${fen}`;
+  } catch {
+    statusTextEl.textContent = `FEN: ${fen}`;
+  }
 });
 
 boardEl.addEventListener(
@@ -804,16 +1090,33 @@ revealBlundersCheckbox.addEventListener('change', (event) => {
   refresh();
 });
 
+showEvalBarCheckbox.addEventListener('change', (event) => {
+  showEvalBar = Boolean(event.target.checked);
+  if (!showEvalBar) {
+    evalAnalysisToken += 1;
+    evalAnalysisBusy = false;
+  } else {
+    lastEvaluatedFen = null;
+  }
+  refresh();
+});
+
 neverBlindLastMovedCheckbox.addEventListener('change', (event) => {
   neverBlindLastMovedPiece = Boolean(event.target.checked);
 });
 
 async function boot() {
   statusTextEl.textContent =
-    activeMode === GAME_MODE.BLINDFISH ? 'Initializing Blindfish...' : 'Initializing Blunderfish...';
+    activeMode === GAME_MODE.BLINDFISH
+      ? 'Initializing Blindfish...'
+      : activeMode === GAME_MODE.RAMPFISH
+        ? 'Initializing Rampfish...'
+        : 'Initializing Blunderfish...';
 
   applyModeSettingsUi();
   revealEngineHints = Boolean(revealBlundersCheckbox.checked);
+  showEvalBar = Boolean(showEvalBarCheckbox.checked);
+  renderEvalBar();
 
   await engine.init();
   await engine.setSkillLevel(20);
@@ -823,6 +1126,7 @@ async function boot() {
 function setModeSelectionDisabled(disabled) {
   modeBlunderfishBtn.disabled = disabled;
   modeBlindfishBtn.disabled = disabled;
+  modeRampfishBtn.disabled = disabled;
   setupStartBtn.disabled = disabled;
   setupBackBtn.disabled = disabled;
 }
@@ -872,6 +1176,10 @@ modeBlindfishBtn.addEventListener('click', () => {
 
 modeBlunderfishBtn.addEventListener('click', () => {
   showSetupScreen(GAME_MODE.BLUNDERFISH);
+});
+
+modeRampfishBtn.addEventListener('click', () => {
+  showSetupScreen(GAME_MODE.RAMPFISH);
 });
 
 window.addEventListener('resize', () => {

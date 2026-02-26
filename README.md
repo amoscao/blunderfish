@@ -9,6 +9,31 @@ https://www.youtube.com/watch?v=DpXy041BIlA
 Stockfish still runs at max strength, but you control a configurable **Blunder Chance** that makes it play random legal moves some percentage of the time.  
 Sometimes it calculates like a machine. Sometimes it forgets what game it's playing.
 
+## Local Development
+
+### Prerequisites
+
+- [Volta](https://volta.sh/) for Node/npm version pinning
+
+### Setup
+
+1. Install the pinned toolchain:
+   - `volta install node@20 npm@10`
+2. Install dependencies:
+   - `npm ci`
+
+### Run and Validate
+
+- Start dev server: `npm run dev`
+- Run tests: `npm test`
+- Build production bundle: `npm run build`
+- Preview production bundle: `npm run preview`
+
+### Troubleshooting
+
+- If `node` or `npm` is missing, ensure Volta is installed and your shell profile is reloaded.
+- If versions do not match, run `volta install node@20 npm@10` again.
+
 ## Credits
 
 ### Chess Engine

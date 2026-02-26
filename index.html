@@ -10,7 +10,101 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main class="app">
+    <section id="mode-select-screen" class="mode-screen" aria-label="Game mode selection">
+      <div class="mode-card">
+        <p class="mode-kicker">Choose a game mode</p>
+        <h1 class="mode-title">Pick Your Fish</h1>
+        <p class="mode-subtitle">Max-strength Stockfish, but with chaotic twists.</p>
+        <div class="mode-options">
+          <button id="mode-blunderfish-btn" class="mode-button" type="button">
+            <span class="mode-name">Blunderfish</span>
+            <span class="mode-description">Max difficulty stockfish but it is forced to randomly play blunders</span>
+          </button>
+          <button id="mode-blindfish-btn" class="mode-button mode-button-secondary" type="button">
+            <span class="mode-name">Blindfish</span>
+            <span class="mode-description">Max difficulty stockfish but it randomly forgets about pieces</span>
+          </button>
+        </div>
+        <p id="mode-select-note" class="mode-note" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section id="setup-screen" class="mode-screen" aria-label="Game setup" hidden>
+      <div class="mode-card">
+        <p class="mode-kicker">Game setup</p>
+        <h1 id="setup-title" class="mode-title">Blunderfish Settings</h1>
+        <p id="setup-subtitle" class="mode-subtitle">Tune settings before the game starts.</p>
+        <p id="setup-first-game-hint" class="setup-hint" hidden>If this is your first game, use the default settings!</p>
+
+        <div id="setup-blunder-settings">
+          <label class="setting-label" for="setup-blunder-slider">Blunder Chance</label>
+          <div class="setting-row">
+            <input
+              id="setup-blunder-slider"
+              class="dilution-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="20"
+            />
+            <span id="setup-blunder-value">20%</span>
+          </div>
+          <label class="setting-checkbox">
+            <input id="setup-reveal-blunders" type="checkbox" checked />
+            <span>Reveal Blunders</span>
+          </label>
+        </div>
+
+        <div id="setup-blind-settings" hidden>
+          <label class="setting-label" for="setup-blind-slider">
+            Percentage of invisible pieces per turn
+          </label>
+          <div class="setting-row">
+            <input
+              id="setup-blind-slider"
+              class="dilution-slider"
+              type="range"
+              min="0"
+              max="20"
+              step="1"
+              value="10"
+            />
+            <span id="setup-blind-value">10%</span>
+          </div>
+          <label class="setting-checkbox">
+            <input id="setup-blind-to-your-pieces" type="checkbox" checked />
+            <span>Blind to your pieces</span>
+          </label>
+          <label class="setting-checkbox">
+            <input id="setup-blind-to-own-pieces" type="checkbox" checked />
+            <span>Blind to its own pieces</span>
+          </label>
+          <label class="setting-checkbox">
+            <input id="setup-never-blind-last-moved" type="checkbox" checked />
+            <span>Never blind to the last moved piece</span>
+          </label>
+          <label class="setting-checkbox">
+            <input id="setup-reveal-blindness" type="checkbox" checked />
+            <span>Reveal Blindness</span>
+          </label>
+        </div>
+
+        <label class="setting-label" for="setup-color-select">Play as</label>
+        <select id="setup-color-select" class="setup-select">
+          <option value="random" selected>Random</option>
+          <option value="w">White</option>
+          <option value="b">Black</option>
+        </select>
+
+        <div class="setup-actions">
+          <button id="setup-back-btn" type="button">Back</button>
+          <button id="setup-start-btn" type="button">Start Game</button>
+        </div>
+      </div>
+    </section>
+
+    <main id="game-app" class="app app-hidden">
       <header class="topbar">
         <h1>Blunderfish</h1>
         <div class="controls">
@@ -19,7 +113,7 @@
         </div>
       </header>
       <p class="subtitle">
-        Blunderfish is max difficulty stockfish, but has a random chance of of playing a random move
+        Max difficulty stockfish but it is forced to randomly play blunders
       </p>
 
       <section class="status-wrap">
@@ -47,7 +141,7 @@
 
           <section class="settings-panel" aria-label="Settings">
             <h2>Settings</h2>
-            <label class="setting-label" for="blunder-slider">
+            <label id="setting-label" class="setting-label" for="blunder-slider">
               Blunder Chance
             </label>
             <div class="setting-row">
@@ -71,11 +165,23 @@
                 inputmode="numeric"
                 aria-label="Blunder chance percentage"
               />
-              <span class="percent-symbol">%</span>
+              <span id="setting-percent-symbol" class="percent-symbol">%</span>
             </div>
             <label class="setting-checkbox">
+              <input id="blind-to-your-pieces" type="checkbox" checked />
+              <span>Blind to your pieces</span>
+            </label>
+            <label class="setting-checkbox">
+              <input id="blind-to-own-pieces" type="checkbox" checked />
+              <span>Blind to its own pieces</span>
+            </label>
+            <label class="setting-checkbox">
+              <input id="never-blind-last-moved" type="checkbox" checked />
+              <span>Never blind to the last moved piece</span>
+            </label>
+            <label class="setting-checkbox">
               <input id="reveal-blunders" type="checkbox" checked />
-              <span>Reveal Blunders</span>
+              <span id="reveal-setting-label">Reveal Blunders</span>
             </label>
           </section>
 

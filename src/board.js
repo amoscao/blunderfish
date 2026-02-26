@@ -46,6 +46,8 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   let canSelectSquare = () => false;
   let lastMove = null;
   let kingOutcomeByColor = { w: null, b: null };
+  let blindSquares = new Set();
+  let showBlindMarkers = false;
 
   function setMoveQueryHandlers(handlers) {
     getLegalTargets = handlers.getLegalTargets;
@@ -78,6 +80,11 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
   function setKingOutcome(nextOutcomeByColor) {
     kingOutcomeByColor = nextOutcomeByColor;
+  }
+
+  function setBlindMarkers({ squares = [], visible = false }) {
+    blindSquares = new Set(squares);
+    showBlindMarkers = visible;
   }
 
   function onSquareClick(square) {
@@ -214,6 +221,20 @@ export function createBoard({ container, onHumanMoveAttempt }) {
         pieceEl.draggable = true;
         pieceEl.addEventListener('dragstart', (event) => onPieceDragStart(event, square));
         squareEl.appendChild(pieceEl);
+
+        if (showBlindMarkers && blindSquares.has(square)) {
+          const blindMarker = document.createElement('span');
+          blindMarker.className = 'blind-marker';
+
+          const blindIcon = document.createElement('img');
+          blindIcon.className = 'blind-marker-icon';
+          blindIcon.src = `${import.meta.env.BASE_URL}assets/blindfish/blind.png`;
+          blindIcon.alt = '';
+          blindIcon.setAttribute('aria-hidden', 'true');
+
+          blindMarker.appendChild(blindIcon);
+          squareEl.appendChild(blindMarker);
+        }
       }
 
       container.appendChild(squareEl);
@@ -225,6 +246,7 @@ export function createBoard({ container, onHumanMoveAttempt }) {
     setInteractionEnabled,
     setLastMove,
     setKingOutcome,
+    setBlindMarkers,
     setMoveQueryHandlers,
     showLegalTargets,
     clearLegalTargets,

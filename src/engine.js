@@ -1,20 +1,23 @@
 const DEFAULT_TIMEOUT_MS = 20000;
 
+function parseUciMoveToken(token) {
+  if (!token || token === '(none)' || token.length < 4) {
+    return null;
+  }
+
+  const from = token.slice(0, 2);
+  const to = token.slice(2, 4);
+  const promotion = token.length > 4 ? token[4] : undefined;
+  return { from, to, promotion };
+}
+
 export function parseBestMoveLine(line) {
   if (!line || !line.startsWith('bestmove ')) {
     return null;
   }
 
   const best = line.split(' ')[1];
-  if (!best || best === '(none)' || best.length < 4) {
-    return null;
-  }
-
-  const from = best.slice(0, 2);
-  const to = best.slice(2, 4);
-  const promotion = best.length > 4 ? best[4] : undefined;
-
-  return { from, to, promotion };
+  return parseUciMoveToken(best);
 }
 
 function parseInfoScoreLine(line) {
@@ -31,6 +34,50 @@ function parseInfoScoreLine(line) {
     type: match[1],
     value: Number(match[2])
   };
+}
+
+export function parseInfoMultiPvLine(line) {
+  if (!line || !line.startsWith('info ')) {
+    return null;
+  }
+
+  const rankMatch = line.match(/\bmultipv\s+(\d+)\b/);
+  const pvMatch = line.match(/\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)\b/i);
+
+  if (!rankMatch || !pvMatch) {
+    return null;
+  }
+
+  const move = parseUciMoveToken(pvMatch[1]);
+  if (!move) {
+    return null;
+  }
+
+  return {
+    rank: Number(rankMatch[1]),
+    move
+  };
+}
+
+function moveKey(move) {
+  return `${move.from}${move.to}${move.promotion || ''}`;
+}
+
+export function rankAndDedupeMoves(entries) {
+  const sorted = [...entries].sort((a, b) => a.rank - b.rank);
+  const seen = new Set();
+  const result = [];
+
+  for (const entry of sorted) {
+    const key = moveKey(entry.move);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(entry.move);
+  }
+
+  return result;
 }
 
 export function createEngine() {
@@ -115,6 +162,34 @@ export function createEngine() {
     return move;
   }
 
+  async function getRankedMoves(fen, { movetimeMs = 1500, multiPv = 8 } = {}) {
+    const requestedMultiPv = Math.max(1, Math.floor(multiPv));
+    const rankedBySlot = new Map();
+
+    send(`setoption name MultiPV value ${requestedMultiPv}`);
+    send(`position fen ${fen}`);
+    send(`go movetime ${movetimeMs}`);
+
+    const bestMoveLine = await waitForLine(
+      (line) => line.startsWith('bestmove '),
+      DEFAULT_TIMEOUT_MS,
+      (line) => {
+        const parsed = parseInfoMultiPvLine(line);
+        if (parsed) {
+          rankedBySlot.set(parsed.rank, parsed.move);
+        }
+      }
+    );
+
+    const bestMove = parseBestMoveLine(bestMoveLine);
+    if (bestMove && !rankedBySlot.has(1)) {
+      rankedBySlot.set(1, bestMove);
+    }
+
+    const entries = Array.from(rankedBySlot.entries()).map(([rank, move]) => ({ rank, move }));
+    return rankAndDedupeMoves(entries);
+  }
+
   async function analyzePosition(fen, movetimeMs = 1500) {
     let latestScore = null;
 
@@ -147,6 +222,7 @@ export function createEngine() {
     setSkillLevel,
     newGame,
     getBestMove,
+    getRankedMoves,
     analyzePosition,
     terminate
   };

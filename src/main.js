@@ -1,9 +1,22 @@
 import { createBoard } from './board.js';
 import { createEngine } from './engine.js';
 import { createGame } from './game.js';
+import { chooseBlindfishMoveWithRetries } from './blindfish.js';
+
+const GAME_MODE = {
+  BLUNDERFISH: 'blunderfish',
+  BLINDFISH: 'blindfish'
+};
+
+const BLUNDER_CHANCE_DEFAULT = 20;
+const PIECE_BLINDNESS_DEFAULT = 10;
+const BLINDNESS_MAX = 20;
+const BLUNDER_MAX = 100;
+const MAX_BLIND_RETRIES = 3;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
+const gameAppEl = document.querySelector('#game-app');
 const newGameBtn = document.querySelector('#new-game-btn');
 const flipBoardBtn = document.querySelector('#flip-board-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
@@ -12,24 +25,61 @@ const movesBody = document.querySelector('#moves-body');
 const blunderSlider = document.querySelector('#blunder-slider');
 const blunderInput = document.querySelector('#blunder-input');
 const revealBlundersCheckbox = document.querySelector('#reveal-blunders');
+const blindToYourPiecesCheckbox = document.querySelector('#blind-to-your-pieces');
+const blindToOwnPiecesCheckbox = document.querySelector('#blind-to-own-pieces');
+const neverBlindLastMovedCheckbox = document.querySelector('#never-blind-last-moved');
+const settingLabelEl = document.querySelector('#setting-label');
+const revealSettingLabelEl = document.querySelector('#reveal-setting-label');
+const settingPercentSymbolEl = document.querySelector('#setting-percent-symbol');
 const opponentCapturesEl = document.querySelector('#opponent-captures');
 const yourCapturesEl = document.querySelector('#your-captures');
 const opponentCaptureScoreEl = document.querySelector('#opponent-capture-score');
 const yourCaptureScoreEl = document.querySelector('#your-capture-score');
+const modeSelectScreenEl = document.querySelector('#mode-select-screen');
+const setupScreenEl = document.querySelector('#setup-screen');
+const modeBlunderfishBtn = document.querySelector('#mode-blunderfish-btn');
+const modeBlindfishBtn = document.querySelector('#mode-blindfish-btn');
+const modeSelectNoteEl = document.querySelector('#mode-select-note');
+const setupTitleEl = document.querySelector('#setup-title');
+const setupSubtitleEl = document.querySelector('#setup-subtitle');
+const setupFirstGameHintEl = document.querySelector('#setup-first-game-hint');
+const setupBlunderSettingsEl = document.querySelector('#setup-blunder-settings');
+const setupBlindSettingsEl = document.querySelector('#setup-blind-settings');
+const setupBlunderSliderEl = document.querySelector('#setup-blunder-slider');
+const setupBlunderValueEl = document.querySelector('#setup-blunder-value');
+const setupBlindSliderEl = document.querySelector('#setup-blind-slider');
+const setupBlindValueEl = document.querySelector('#setup-blind-value');
+const setupRevealBlundersEl = document.querySelector('#setup-reveal-blunders');
+const setupBlindToYourPiecesEl = document.querySelector('#setup-blind-to-your-pieces');
+const setupBlindToOwnPiecesEl = document.querySelector('#setup-blind-to-own-pieces');
+const setupNeverBlindLastMovedEl = document.querySelector('#setup-never-blind-last-moved');
+const setupRevealBlindnessEl = document.querySelector('#setup-reveal-blindness');
+const setupColorSelectEl = document.querySelector('#setup-color-select');
+const setupBackBtn = document.querySelector('#setup-back-btn');
+const setupStartBtn = document.querySelector('#setup-start-btn');
+const topbarTitleEl = document.querySelector('.topbar h1');
+const subtitleEl = document.querySelector('.subtitle');
 
 const game = createGame();
 const engine = createEngine();
 
+let activeMode = GAME_MODE.BLUNDERFISH;
 let displayOrientation = 'w';
 let searchToken = 0;
 let thinking = false;
 let pendingPromotion = null;
 let lastMove = null;
-let blunderChancePercent = 20;
+let blunderChancePercent = BLUNDER_CHANCE_DEFAULT;
+let pieceBlindnessPercent = PIECE_BLINDNESS_DEFAULT;
 let computerMoveKinds = new Map();
 let randomMoveHurts = new Map();
-let revealBlunders = true;
+let revealEngineHints = true;
+let neverBlindLastMovedPiece = true;
+let preferredHumanColor = 'random';
 let lastBoardTouchEndTs = 0;
+let gameStarted = false;
+let currentBlindSquares = new Set();
+let blindSelectionTurnToken = 0;
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
@@ -66,7 +116,6 @@ function scoreToComparableCp(score) {
     return score.value;
   }
 
-  // Mate scores dominate any centipawn estimate.
   return score.value > 0 ? 100000 : -100000;
 }
 
@@ -93,17 +142,112 @@ function pieceImageName(color, type) {
   return `${color}_${nameByType[type]}_png_128px.png`;
 }
 
-function clampBlunderChance(value) {
-  if (Number.isNaN(value)) {
-    return blunderChancePercent;
-  }
-  return Math.min(100, Math.max(0, Math.round(value)));
+function getSettingMax() {
+  return activeMode === GAME_MODE.BLINDFISH ? BLINDNESS_MAX : BLUNDER_MAX;
 }
 
-function setBlunderControls(nextValue) {
-  blunderChancePercent = clampBlunderChance(nextValue);
-  blunderSlider.value = String(blunderChancePercent);
-  blunderInput.value = String(blunderChancePercent);
+function getCurrentSettingValue() {
+  return activeMode === GAME_MODE.BLINDFISH ? pieceBlindnessPercent : blunderChancePercent;
+}
+
+function clampSettingValue(value) {
+  if (Number.isNaN(value)) {
+    return getCurrentSettingValue();
+  }
+
+  return Math.min(getSettingMax(), Math.max(0, Math.round(value)));
+}
+
+function setSettingControls(nextValue) {
+  const value = clampSettingValue(nextValue);
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    pieceBlindnessPercent = value;
+  } else {
+    blunderChancePercent = value;
+  }
+
+  blunderSlider.value = String(value);
+  blunderInput.value = String(value);
+}
+
+function applyModeSettingsUi() {
+  const isBlindfish = activeMode === GAME_MODE.BLINDFISH;
+
+  settingLabelEl.textContent = isBlindfish
+    ? 'Percentage of invisible pieces per turn'
+    : 'Blunder Chance';
+  revealSettingLabelEl.textContent = isBlindfish ? 'Reveal Blindness' : 'Reveal Blunders';
+  settingPercentSymbolEl.hidden = false;
+  blindToYourPiecesCheckbox.parentElement.hidden = !isBlindfish;
+  blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
+  neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
+  topbarTitleEl.textContent = isBlindfish ? 'Blindfish' : 'Blunderfish';
+  subtitleEl.textContent = isBlindfish
+    ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
+    : 'Max difficulty stockfish but it is forced to randomly play blunders';
+
+  blunderSlider.max = String(getSettingMax());
+  blunderInput.max = String(getSettingMax());
+  setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+}
+
+function updateSetupPreviewValues() {
+  setupBlunderValueEl.textContent = `${setupBlunderSliderEl.value}%`;
+  setupBlindValueEl.textContent = `${setupBlindSliderEl.value}%`;
+}
+
+function showModeSelectionScreen() {
+  modeSelectScreenEl.hidden = false;
+  setupScreenEl.hidden = true;
+}
+
+function showSetupScreen(mode) {
+  activeMode = mode;
+  const isBlindfish = mode === GAME_MODE.BLINDFISH;
+
+  setupTitleEl.textContent = isBlindfish ? 'Blindfish Settings' : 'Blunderfish Settings';
+  setupSubtitleEl.textContent = isBlindfish
+    ? 'Choose how Blindfish should forget pieces before the game starts.'
+    : 'Choose how often Blunderfish should blunder before the game starts.';
+
+  setupBlunderSettingsEl.hidden = isBlindfish;
+  setupBlindSettingsEl.hidden = !isBlindfish;
+  setupFirstGameHintEl.hidden = !isBlindfish;
+
+  setupBlunderSliderEl.value = String(blunderChancePercent);
+  setupBlindSliderEl.value = String(pieceBlindnessPercent);
+  setupRevealBlundersEl.checked = revealEngineHints;
+  setupBlindToYourPiecesEl.checked = blindToYourPiecesCheckbox.checked;
+  setupBlindToOwnPiecesEl.checked = blindToOwnPiecesCheckbox.checked;
+  setupNeverBlindLastMovedEl.checked = neverBlindLastMovedPiece;
+  setupRevealBlindnessEl.checked = revealEngineHints;
+  setupColorSelectEl.value = preferredHumanColor;
+  updateSetupPreviewValues();
+
+  modeSelectScreenEl.hidden = true;
+  setupScreenEl.hidden = false;
+}
+
+function applySetupSelections() {
+  preferredHumanColor = setupColorSelectEl.value;
+
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    pieceBlindnessPercent = clampSettingValue(Number(setupBlindSliderEl.value));
+    revealEngineHints = Boolean(setupRevealBlindnessEl.checked);
+    blindToYourPiecesCheckbox.checked = Boolean(setupBlindToYourPiecesEl.checked);
+    blindToOwnPiecesCheckbox.checked = Boolean(setupBlindToOwnPiecesEl.checked);
+    neverBlindLastMovedPiece = Boolean(setupNeverBlindLastMovedEl.checked);
+    neverBlindLastMovedCheckbox.checked = neverBlindLastMovedPiece;
+    revealBlundersCheckbox.checked = revealEngineHints;
+  } else {
+    blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
+    revealEngineHints = Boolean(setupRevealBlundersEl.checked);
+    revealBlundersCheckbox.checked = revealEngineHints;
+    blindToYourPiecesCheckbox.checked = true;
+    blindToOwnPiecesCheckbox.checked = true;
+    neverBlindLastMovedPiece = true;
+    neverBlindLastMovedCheckbox.checked = true;
+  }
 }
 
 function statusReasonText(reason) {
@@ -151,20 +295,23 @@ function updateStatus() {
   }
 
   if (!isHumanToMove) {
-    statusTextEl.textContent = 'Blunderfish is thinking...';
+    statusTextEl.textContent =
+      activeMode === GAME_MODE.BLINDFISH ? 'Blindfish is thinking...' : 'Blunderfish is thinking...';
     return;
   }
 
-  const lastMoveIndex = history.length - 1;
-  const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
-  if (revealBlunders && lastMoveKind === 'random') {
-    if (randomMoveHurts.get(lastMoveIndex)) {
-      statusTextEl.textContent =
-        'Your move. Blunderfish is confused! Blunderfish hurt itself in its confusion! 😖';
-    } else {
-      statusTextEl.textContent = 'Your move. Blunderfish is confused! 🎲';
+  if (activeMode === GAME_MODE.BLUNDERFISH) {
+    const lastMoveIndex = history.length - 1;
+    const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
+    if (revealEngineHints && lastMoveKind === 'random') {
+      if (randomMoveHurts.get(lastMoveIndex)) {
+        statusTextEl.textContent =
+          'Your move. Blunderfish is confused! Blunderfish hurt itself in its confusion!';
+      } else {
+        statusTextEl.textContent = 'Your move. Blunderfish is confused!';
+      }
+      return;
     }
-    return;
   }
 
   statusTextEl.textContent = 'Your move.';
@@ -184,6 +331,10 @@ function updateBoard() {
 
   board.setLastMove(lastMove);
   board.setKingOutcome(kingOutcome);
+  board.setBlindMarkers({
+    squares: Array.from(currentBlindSquares),
+    visible: activeMode === GAME_MODE.BLINDFISH && revealEngineHints
+  });
   board.render(game.getPosition(), displayOrientation);
   updateStatus();
 }
@@ -198,14 +349,12 @@ function updateMovesTable() {
     const move = history[index] || '';
     const isComputerMove =
       (computerColor === 'w' && index % 2 === 0) || (computerColor === 'b' && index % 2 === 1);
-    if (!isComputerMove) {
+
+    if (!isComputerMove || activeMode !== GAME_MODE.BLUNDERFISH || !revealEngineHints) {
       return move;
     }
 
     const kind = computerMoveKinds.get(index);
-    if (!revealBlunders) {
-      return move;
-    }
     if (kind === 'engine') {
       return `${move} 🧠`;
     }
@@ -384,6 +533,83 @@ async function askPromotion(color) {
   return choice;
 }
 
+async function chooseBlindfishMove(tokenAtStart) {
+  const humanColor = game.getHumanColor();
+  const computerColor = oppositeColor(humanColor);
+  const includeHumanPieces = Boolean(blindToYourPiecesCheckbox.checked);
+  const includeComputerPieces = Boolean(blindToOwnPiecesCheckbox.checked);
+
+  if (!includeHumanPieces && !includeComputerPieces) {
+    currentBlindSquares = new Set();
+    refresh();
+    return engine.getBestMove(game.getFen(), 1500);
+  }
+
+  const position = game.getPosition();
+  const eligibleSquares = Object.entries(position)
+    .filter(([, piece]) => {
+      if (!piece || piece.type === 'k') {
+        return false;
+      }
+      if (piece.color === humanColor) {
+        return includeHumanPieces;
+      }
+      if (piece.color === computerColor) {
+        return includeComputerPieces;
+      }
+      return false;
+    })
+    .map(([square]) => square);
+
+  const excludedSquare = neverBlindLastMovedPiece ? lastMove?.to : null;
+  const eligibleSquaresFiltered = excludedSquare
+    ? eligibleSquares.filter((square) => square !== excludedSquare)
+    : eligibleSquares;
+
+  const blindnessCount = Math.min(
+    eligibleSquaresFiltered.length,
+    Math.round((pieceBlindnessPercent / 100) * eligibleSquaresFiltered.length)
+  );
+
+  if (blindnessCount <= 0) {
+    currentBlindSquares = new Set();
+    refresh();
+    return engine.getBestMove(game.getFen(), 1500);
+  }
+
+  const legalMoves = game.getAllLegalMoves();
+  const candidateCeiling = Math.min(60, Math.max(10, legalMoves.length * 2));
+
+  return chooseBlindfishMoveWithRetries({
+    pieceBlindnessCount: blindnessCount,
+    maxRetries: MAX_BLIND_RETRIES,
+    movetimeMs: 1500,
+    multiPv: candidateCeiling,
+    selectBlindSquares: (count) =>
+      game.selectBlindSquares(count, Math.random, {
+        includeWhite:
+          (includeHumanPieces && humanColor === 'w') || (includeComputerPieces && computerColor === 'w'),
+        includeBlack:
+          (includeHumanPieces && humanColor === 'b') || (includeComputerPieces && computerColor === 'b'),
+        excludeSquares: excludedSquare ? [excludedSquare] : []
+      }),
+    buildBlindFen: (blindSquares) => game.buildBlindFen(blindSquares),
+    getRankedMoves: (fen, options) => engine.getRankedMoves(fen, options),
+    isLegalMove: (move) => game.isLegalMove(move),
+    getAllLegalMoves: () => game.getAllLegalMoves(),
+    onBlindSelection: (blindSquares) => {
+      if (tokenAtStart !== searchToken) {
+        return;
+      }
+      blindSelectionTurnToken += 1;
+      currentBlindSquares = new Set(blindSquares);
+      refresh();
+    },
+    shouldContinue: () => tokenAtStart === searchToken,
+    rng: Math.random
+  });
+}
+
 async function requestEngineMove() {
   if (game.getGameStatus().over || isHumanTurn()) {
     refresh();
@@ -395,36 +621,39 @@ async function requestEngineMove() {
   refresh();
 
   try {
-    const useRandomMove = Math.random() < blunderChancePercent / 100;
     const historyPlyIndex = game.getMoveHistory().length;
     const humanColor = game.getHumanColor();
     const computerColor = oppositeColor(humanColor);
     let selectedMove;
     let preScoreForComputer = null;
 
-    if (useRandomMove) {
-      const preScoreRaw = await engine.analyzePosition(game.getFen(), 350);
-      preScoreForComputer = scoreToColorPerspective(preScoreRaw, computerColor, computerColor);
-
-      const legalMoves = game.getAllLegalMoves();
-      if (legalMoves.length === 0) {
+    if (activeMode === GAME_MODE.BLINDFISH) {
+      selectedMove = await chooseBlindfishMove(tokenAtStart);
+      if (!selectedMove) {
         refresh();
         return;
       }
-      const choiceIndex = Math.floor(Math.random() * legalMoves.length);
-      selectedMove = legalMoves[choiceIndex];
-      await sleep(1500);
+      computerMoveKinds.set(historyPlyIndex, 'blind');
+      randomMoveHurts.delete(historyPlyIndex);
     } else {
-      selectedMove = await engine.getBestMove(game.getFen(), 1500);
-    }
+      const useRandomMove = Math.random() < blunderChancePercent / 100;
 
-    if (tokenAtStart !== searchToken) {
-      return;
-    }
+      if (useRandomMove) {
+        const preScoreRaw = await engine.analyzePosition(game.getFen(), 350);
+        preScoreForComputer = scoreToColorPerspective(preScoreRaw, computerColor, computerColor);
 
-    const result = game.applyMove(selectedMove);
-    if (result.ok) {
-      lastMove = { from: selectedMove.from, to: selectedMove.to };
+        const legalMoves = game.getAllLegalMoves();
+        if (legalMoves.length === 0) {
+          refresh();
+          return;
+        }
+        const choiceIndex = Math.floor(Math.random() * legalMoves.length);
+        selectedMove = legalMoves[choiceIndex];
+        await sleep(1500);
+      } else {
+        selectedMove = await engine.getBestMove(game.getFen(), 1500);
+      }
+
       computerMoveKinds.set(historyPlyIndex, useRandomMove ? 'random' : 'engine');
 
       if (useRandomMove && preScoreForComputer) {
@@ -437,6 +666,15 @@ async function requestEngineMove() {
       } else {
         randomMoveHurts.delete(historyPlyIndex);
       }
+    }
+
+    if (tokenAtStart !== searchToken) {
+      return;
+    }
+
+    const result = game.applyMove(selectedMove);
+    if (result.ok) {
+      lastMove = { from: selectedMove.from, to: selectedMove.to };
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -483,8 +721,10 @@ async function startNewGame() {
   lastMove = null;
   computerMoveKinds = new Map();
   randomMoveHurts = new Map();
+  currentBlindSquares = new Set();
 
-  const humanColor = randomColor();
+  const humanColor =
+    preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;
   game.newGame(humanColor);
 
   displayOrientation = humanColor;
@@ -523,32 +763,88 @@ boardEl.addEventListener(
 );
 
 blunderSlider.addEventListener('input', (event) => {
-  setBlunderControls(Number(event.target.value));
+  setSettingControls(Number(event.target.value));
 });
 
 blunderInput.addEventListener('input', (event) => {
-  setBlunderControls(Number(event.target.value));
+  setSettingControls(Number(event.target.value));
 });
 
 blunderInput.addEventListener('blur', () => {
-  setBlunderControls(Number(blunderInput.value));
+  setSettingControls(Number(blunderInput.value));
 });
 
 revealBlundersCheckbox.addEventListener('change', (event) => {
-  revealBlunders = Boolean(event.target.checked);
-  updateMovesTable();
+  revealEngineHints = Boolean(event.target.checked);
+  refresh();
+});
+
+neverBlindLastMovedCheckbox.addEventListener('change', (event) => {
+  neverBlindLastMovedPiece = Boolean(event.target.checked);
 });
 
 async function boot() {
-  statusTextEl.textContent = 'Initializing Stockfish...';
-  setBlunderControls(20);
-  revealBlunders = Boolean(revealBlundersCheckbox.checked);
+  statusTextEl.textContent =
+    activeMode === GAME_MODE.BLINDFISH ? 'Initializing Blindfish...' : 'Initializing Blunderfish...';
+
+  applyModeSettingsUi();
+  revealEngineHints = Boolean(revealBlundersCheckbox.checked);
 
   await engine.init();
   await engine.setSkillLevel(20);
   await startNewGame();
 }
 
-boot().catch((error) => {
-  statusTextEl.textContent = `Startup failed: ${error.message}`;
+function setModeSelectionDisabled(disabled) {
+  modeBlunderfishBtn.disabled = disabled;
+  modeBlindfishBtn.disabled = disabled;
+  setupStartBtn.disabled = disabled;
+  setupBackBtn.disabled = disabled;
+}
+
+function showGameApp() {
+  modeSelectScreenEl.hidden = true;
+  setupScreenEl.hidden = true;
+  gameAppEl.classList.remove('app-hidden');
+}
+
+async function launchMode(mode) {
+  if (gameStarted) {
+    return;
+  }
+
+  gameStarted = true;
+  modeSelectNoteEl.textContent = '';
+  setModeSelectionDisabled(true);
+  applySetupSelections();
+  showGameApp();
+
+  try {
+    await boot();
+  } catch (error) {
+    gameStarted = false;
+    showModeSelectionScreen();
+    gameAppEl.classList.add('app-hidden');
+    setModeSelectionDisabled(false);
+    statusTextEl.textContent = `Startup failed: ${error.message}`;
+  }
+}
+
+setupBlunderSliderEl.addEventListener('input', updateSetupPreviewValues);
+setupBlindSliderEl.addEventListener('input', updateSetupPreviewValues);
+
+setupBackBtn.addEventListener('click', () => {
+  showModeSelectionScreen();
+});
+
+setupStartBtn.addEventListener('click', async () => {
+  await launchMode(activeMode);
+});
+
+modeBlindfishBtn.addEventListener('click', () => {
+  showSetupScreen(GAME_MODE.BLINDFISH);
+});
+
+modeBlunderfishBtn.addEventListener('click', () => {
+  showSetupScreen(GAME_MODE.BLUNDERFISH);
 });

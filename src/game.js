@@ -194,6 +194,42 @@ export function buildFenWithRemovedSquares(realFen, squaresToRemove) {
   return realFen;
 }
 
+export function isBlindFenSearchSafe(fen) {
+  const parts = fen.trim().split(/\s+/);
+  if (parts.length < 6) {
+    return false;
+  }
+
+  const validator = new Chess();
+  try {
+    const loadResult = validator.load(fen);
+    if (loadResult === false) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  const turn = parts[1];
+  if (turn !== 'w' && turn !== 'b') {
+    return false;
+  }
+
+  const oppositeTurn = turn === 'w' ? 'b' : 'w';
+  const swappedTurnFen = `${parts[0]} ${oppositeTurn} ${parts[2]} ${parts[3]} ${parts[4]} ${parts[5]}`;
+  const swapped = new Chess();
+  try {
+    const loadResult = swapped.load(swappedTurnFen);
+    if (loadResult === false) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return !swapped.inCheck();
+}
+
 export function createGame() {
   let chess = new Chess();
   let humanColor = 'w';
@@ -404,6 +440,7 @@ export function createGame() {
     selectBlindSquares: (count, rng = Math.random, options = undefined) =>
       selectBlindSquares(getPosition(), count, rng, options),
     buildBlindFen: (squaresToRemove) => buildFenWithRemovedSquares(chess.fen(), squaresToRemove),
+    isBlindFenSearchSafe,
     getGameStatus,
     getMoveHistory
   };

@@ -14,6 +14,7 @@ export async function chooseBlindfishMoveWithRetries({
   multiPv,
   selectBlindSquares,
   buildBlindFen,
+  isBlindFenSearchSafe = () => true,
   getRankedMoves,
   isLegalMove,
   getAllLegalMoves,
@@ -35,6 +36,9 @@ export async function chooseBlindfishMoveWithRetries({
     onBlindSelection(blindSquares);
 
     const blindFen = buildBlindFen(blindSquares);
+    if (!isBlindFenSearchSafe(blindFen)) {
+      continue;
+    }
     const rankedMoves = await getRankedMoves(blindFen, { movetimeMs, multiPv });
 
     if (!shouldContinue()) {

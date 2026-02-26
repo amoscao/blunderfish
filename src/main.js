@@ -614,6 +614,7 @@ async function chooseBlindfishMove(tokenAtStart) {
         excludeSquares: excludedSquare ? [excludedSquare] : []
       }),
     buildBlindFen: (blindSquares) => game.buildBlindFen(blindSquares),
+    isBlindFenSearchSafe: (fen) => game.isBlindFenSearchSafe(fen),
     getRankedMoves: (fen, options) => engine.getRankedMoves(fen, options),
     isLegalMove: (move) => game.isLegalMove(move),
     getAllLegalMoves: () => game.getAllLegalMoves(),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildFenWithRemovedSquares, createGame } from '../src/game.js';
+import { buildFenWithRemovedSquares, createGame, isBlindFenSearchSafe } from '../src/game.js';
 
 describe('game rules', () => {
   test('starts at white turn', () => {
@@ -84,5 +84,13 @@ describe('game rules', () => {
     expect(boardPart).toContain('Q');
     expect(boardPart).toContain('k');
     expect(boardPart).toContain('K');
+  });
+
+  test('flags blind FEN as unsafe when non-side-to-move king is in check', () => {
+    const safeFen = '2b1kbnr/p3pppp/2n5/1B6/8/2N1PN2/PP1P1PPP/R1B1K2R w KQ - 3 11';
+    const unsafeFen = '2b1kb1r/p4ppp/8/1B6/8/2N2N2/PP3PPP/R1B1K2R w KQ - 3 11';
+
+    expect(isBlindFenSearchSafe(safeFen)).toBe(true);
+    expect(isBlindFenSearchSafe(unsafeFen)).toBe(false);
   });
 });

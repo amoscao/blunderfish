@@ -93,4 +93,29 @@ describe('blindfish orchestration', () => {
 
     expect(result).toBeNull();
   });
+
+  test('skips unsafe blind FENs before querying ranked moves', async () => {
+    const buildBlindFen = vi
+      .fn()
+      .mockReturnValueOnce('unsafe-fen')
+      .mockReturnValueOnce('safe-fen');
+    const getRankedMoves = vi.fn().mockResolvedValue([{ from: 'b2', to: 'b3' }]);
+
+    const result = await chooseBlindfishMoveWithRetries({
+      pieceBlindnessCount: 5,
+      maxRetries: 2,
+      movetimeMs: 200,
+      multiPv: 10,
+      selectBlindSquares: vi.fn().mockReturnValue(['d2']),
+      buildBlindFen,
+      isBlindFenSearchSafe: (fen) => fen !== 'unsafe-fen',
+      getRankedMoves,
+      isLegalMove: (move) => move.from === 'b2',
+      getAllLegalMoves: () => [{ from: 'h2', to: 'h3' }]
+    });
+
+    expect(result).toEqual({ from: 'b2', to: 'b3' });
+    expect(getRankedMoves).toHaveBeenCalledTimes(1);
+    expect(getRankedMoves).toHaveBeenCalledWith('safe-fen', { movetimeMs: 200, multiPv: 10 });
+  });
 });

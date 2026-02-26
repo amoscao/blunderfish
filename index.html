@@ -25,7 +25,7 @@
             <span class="mode-description">Max difficulty stockfish but it randomly forgets about pieces</span>
           </button>
           <button id="mode-rampfish-btn" class="mode-button mode-button-tertiary" type="button">
-            <span class="mode-name">Comebackfish</span>
+            <span class="mode-name">Clapbackfish</span>
             <span class="mode-description">Makes the comeback of the century</span>
           </button>
         </div>
@@ -92,24 +92,6 @@
             <input id="setup-reveal-blindness" type="checkbox" checked />
             <span>Reveal Blindness</span>
           </label>
-        </div>
-
-        <div id="setup-ramp-settings" class="setup-mode-settings" hidden>
-          <label class="setting-label" for="setup-ramp-direction">Engine ramp mode</label>
-          <select id="setup-ramp-direction" class="setup-select">
-            <option value="up" selected>Ramp up</option>
-            <option value="down">Ramp down</option>
-          </select>
-          <label class="setting-label" for="setup-ramp-final-move">Final engine move</label>
-          <input
-            id="setup-ramp-final-move"
-            class="dilution-input"
-            type="number"
-            min="1"
-            step="1"
-            value="40"
-            inputmode="numeric"
-          />
         </div>
 
         <label class="setting-label" for="setup-color-select">Play as</label>
@@ -249,6 +231,28 @@
         <h2>Choose promotion</h2>
         <div id="promotion-options" class="promotion-options"></div>
       </form>
+    </dialog>
+
+    <dialog id="game-result-dialog" class="game-result-dialog">
+      <div class="game-result-header">
+        <h2 id="game-result-title">Draw!</h2>
+        <button id="game-result-close-btn" type="button" aria-label="Close game result">X</button>
+      </div>
+      <div class="game-result-graph-wrap">
+        <p id="game-result-graph-y-label" class="game-result-axis-label">Eval (pawns, human perspective)</p>
+        <svg
+          id="game-result-graph"
+          class="game-result-graph"
+          viewBox="0 0 680 280"
+          role="img"
+          aria-label="Eval history graph"
+        ></svg>
+        <p id="game-result-graph-x-label" class="game-result-axis-label">Half-move (ply)</p>
+      </div>
+      <div class="game-result-actions">
+        <button id="game-result-main-menu-btn" type="button">Main Menu</button>
+        <button id="game-result-rematch-btn" type="button">Rematch</button>
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.js"></script>

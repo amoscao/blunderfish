@@ -163,6 +163,9 @@ describe('blunder randomizer integration', () => {
 
     document.querySelector('#new-game-btn').click();
     await flushUi();
+    await flushUi();
+    document.querySelector('#new-game-btn').click();
+    await flushUi();
     expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 2);
   });
 

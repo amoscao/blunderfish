@@ -5,8 +5,15 @@ import { chooseBlindfishMoveWithRetries } from './blindfish.js';
 import { createBlunderDecisionSmoother } from './blunder-smoother.js';
 import { formatEvalLabel, scoreToWhitePercent } from './eval-bar.js';
 import {
-  RAMP_DIRECTION,
+  buildAxisTicks,
+  buildPolylinePoints,
+  computeSymmetricYRange,
+  sanitizeCpForGraph
+} from './eval-graph.js';
+import {
   RAMP_DEFAULT_FINAL_MOVE,
+  RAMP_TARGET_CP_MAX,
+  RAMP_TARGET_CP_MIN,
   clampFinalMove,
   computeTargetEvalCp
 } from './rampfish.js';
@@ -71,9 +78,6 @@ const setupBlindToYourPiecesEl = document.querySelector('#setup-blind-to-your-pi
 const setupBlindToOwnPiecesEl = document.querySelector('#setup-blind-to-own-pieces');
 const setupNeverBlindLastMovedEl = document.querySelector('#setup-never-blind-last-moved');
 const setupRevealBlindnessEl = document.querySelector('#setup-reveal-blindness');
-const setupRampSettingsEl = document.querySelector('#setup-ramp-settings');
-const setupRampDirectionEl = document.querySelector('#setup-ramp-direction');
-const setupRampFinalMoveEl = document.querySelector('#setup-ramp-final-move');
 const setupColorSelectEl = document.querySelector('#setup-color-select');
 const setupBackBtn = document.querySelector('#setup-back-btn');
 const setupStartBtn = document.querySelector('#setup-start-btn');
@@ -86,6 +90,14 @@ const rampTargetCpValueEl = document.querySelector('#ramp-target-cp-value');
 const evalBarWrapEl = document.querySelector('#eval-bar-wrap');
 const evalBarWhiteFillEl = document.querySelector('#eval-bar-white-fill');
 const evalBarLabelEl = document.querySelector('#eval-bar-label');
+const gameResultDialogEl = document.querySelector('#game-result-dialog');
+const gameResultTitleEl = document.querySelector('#game-result-title');
+const gameResultCloseBtnEl = document.querySelector('#game-result-close-btn');
+const gameResultGraphEl = document.querySelector('#game-result-graph');
+const gameResultXLabelEl = document.querySelector('#game-result-graph-x-label');
+const gameResultYLabelEl = document.querySelector('#game-result-graph-y-label');
+const gameResultMainMenuBtnEl = document.querySelector('#game-result-main-menu-btn');
+const gameResultRematchBtnEl = document.querySelector('#game-result-rematch-btn');
 
 const game = createGame();
 const engine = createEngine();
@@ -104,11 +116,9 @@ let revealEngineHints = true;
 let showEvalBar = false;
 let neverBlindLastMovedPiece = true;
 let preferredHumanColor = 'random';
-let rampDirection = RAMP_DIRECTION.UP;
 let rampFinalMove = RAMP_DEFAULT_FINAL_MOVE;
 let computerEngineTurnCount = 0;
 let lastRampTargetCp = computeTargetEvalCp({
-  direction: rampDirection,
   engineTurnIndex: 1,
   finalMove: rampFinalMove
 });
@@ -120,6 +130,13 @@ let evalScoreForWhite = { type: 'cp', value: 0 };
 let lastEvaluatedFen = null;
 let evalAnalysisBusy = false;
 let evalAnalysisToken = 0;
+let postGameModalOpen = false;
+let gameConcluded = false;
+let forcedGameStatus = null;
+let evalHistoryHuman = [];
+let evalHistoryQueue = [];
+let evalHistoryBusy = false;
+let evalHistoryBusyToken = 0;
 const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
@@ -142,6 +159,20 @@ function colorName(color) {
 
 function oppositeColor(color) {
   return color === 'w' ? 'b' : 'w';
+}
+
+function getEffectiveGameStatus() {
+  return forcedGameStatus || game.getGameStatus();
+}
+
+function parseFenTurn(fen) {
+  const tokens = String(fen || '').trim().split(/\s+/);
+  return tokens[1] === 'b' ? 'b' : 'w';
+}
+
+function updatePrimaryTopRightButton() {
+  const status = getEffectiveGameStatus();
+  newGameBtn.textContent = gameStarted && !status.over && !gameConcluded ? 'Forfeit' : 'New Game';
 }
 
 function moveKey(move) {
@@ -176,6 +207,227 @@ function scoreToComparableCp(score) {
   return score.value > 0 ? 100000 : -100000;
 }
 
+function outcomeTitleText(status) {
+  if (status.result === 'draw') {
+    return 'Draw!';
+  }
+  return status.result === game.getHumanColor() ? 'You won!' : 'You lost :(';
+}
+
+function mapPlotX(ply, maxPly, width) {
+  if (maxPly <= 0) {
+    return 0;
+  }
+  return (ply / maxPly) * width;
+}
+
+function mapPlotY(cp, minCp, maxCp, height) {
+  const span = Math.max(1, maxCp - minCp);
+  return ((maxCp - cp) / span) * height;
+}
+
+function renderGameResultGraph(history) {
+  if (!gameResultGraphEl) {
+    return;
+  }
+
+  const width = 680;
+  const height = 280;
+  const margin = { left: 62, right: 22, top: 18, bottom: 42 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const samples = history.length > 0 ? history : [{ ply: 0, cp: 0 }];
+  const yRange = computeSymmetricYRange(samples.map((sample) => sample.cp));
+  const maxPly = Math.max(0, ...samples.map((sample) => sample.ply));
+  const ticks = buildAxisTicks(maxPly, yRange);
+  const polylinePoints = buildPolylinePoints(
+    samples.map((sample) => ({ ply: sample.ply, cp: sample.cp })),
+    { width: plotWidth, height: plotHeight },
+    yRange
+  );
+  const yZero = mapPlotY(0, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+
+  const xTickMarkup = ticks.xTicks
+    .map((tick) => {
+      const x = mapPlotX(tick.value, maxPly, plotWidth) + margin.left;
+      return `<g>
+  <line x1="${x.toFixed(2)}" y1="${margin.top + plotHeight}" x2="${x.toFixed(
+        2
+      )}" y2="${(margin.top + plotHeight + 5).toFixed(2)}" stroke="#8d7460" />
+  <text x="${x.toFixed(2)}" y="${(height - 12).toFixed(2)}" fill="#dbc7af" font-size="12" text-anchor="${
+        tick.value === 0 ? 'start' : 'end'
+      }">${tick.label}</text>
+</g>`;
+    })
+    .join('');
+
+  const yTickMarkup = ticks.yTicks
+    .map((tick) => {
+      const y = mapPlotY(tick.value, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+      return `<g>
+  <line x1="${(margin.left - 5).toFixed(2)}" y1="${y.toFixed(2)}" x2="${margin.left.toFixed(
+        2
+      )}" y2="${y.toFixed(2)}" stroke="#8d7460" />
+  <text x="${(margin.left - 9).toFixed(2)}" y="${(y + 4).toFixed(
+        2
+      )}" fill="#dbc7af" font-size="12" text-anchor="end">${tick.label}</text>
+</g>`;
+    })
+    .join('');
+
+  const shouldShowTargetLine = activeMode === GAME_MODE.RAMPFISH;
+  let targetLineMarkup = '';
+  let targetLegendMarkup = '';
+  if (shouldShowTargetLine) {
+    const startEngineCp = RAMP_TARGET_CP_MIN;
+    const endEngineCp = RAMP_TARGET_CP_MAX;
+    const startHumanCp = Math.max(yRange.minCp, Math.min(yRange.maxCp, -startEngineCp));
+    const endHumanCp = Math.max(yRange.minCp, Math.min(yRange.maxCp, -endEngineCp));
+    const y1 = mapPlotY(startHumanCp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+    const y2 = mapPlotY(endHumanCp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+    const x1 = margin.left;
+    const x2 = margin.left + plotWidth;
+    const legendX = margin.left + plotWidth - 130;
+    const legendY = margin.top + 14;
+
+    targetLineMarkup = `<line id="game-result-target-line" x1="${x1.toFixed(2)}" y1="${y1.toFixed(
+      2
+    )}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="#e05252" stroke-width="2"></line>`;
+    targetLegendMarkup = `<g id="game-result-target-legend">
+  <line x1="${legendX.toFixed(2)}" y1="${legendY.toFixed(2)}" x2="${(legendX + 22).toFixed(
+      2
+    )}" y2="${legendY.toFixed(2)}" stroke="#e05252" stroke-width="2"></line>
+  <text x="${(legendX + 28).toFixed(2)}" y="${(legendY + 4).toFixed(
+      2
+    )}" fill="#e8c1c1" font-size="12" text-anchor="start">Target Eval</text>
+</g>`;
+  }
+
+  gameResultGraphEl.innerHTML = `
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#171310"></rect>
+    <line x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${
+      margin.top + plotHeight
+    }" stroke="#8d7460" stroke-width="1"></line>
+    <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}" stroke="#8d7460" stroke-width="1"></line>
+    <line x1="${margin.left}" y1="${yZero.toFixed(2)}" x2="${margin.left + plotWidth}" y2="${yZero.toFixed(
+      2
+    )}" stroke="#4c677d" stroke-width="1" stroke-dasharray="4 4"></line>
+    ${xTickMarkup}
+    ${yTickMarkup}
+    ${targetLineMarkup}
+    ${targetLegendMarkup}
+    <g transform="translate(${margin.left}, ${margin.top})">
+      <polyline fill="none" stroke="#d7a86e" stroke-width="2" points="${polylinePoints}"></polyline>
+    </g>
+  `;
+}
+
+function openGameResultModal(status) {
+  if (!gameResultDialogEl || !gameResultTitleEl) {
+    return;
+  }
+
+  gameResultTitleEl.textContent = outcomeTitleText(status);
+  if (gameResultXLabelEl) {
+    gameResultXLabelEl.textContent = 'Half-move (ply)';
+  }
+  if (gameResultYLabelEl) {
+    gameResultYLabelEl.textContent = 'Eval (pawns, human perspective)';
+  }
+  renderGameResultGraph(evalHistoryHuman);
+  if (!gameResultDialogEl.open) {
+    if (typeof gameResultDialogEl.showModal === 'function') {
+      gameResultDialogEl.showModal();
+    } else {
+      gameResultDialogEl.setAttribute('open', '');
+    }
+  }
+  postGameModalOpen = true;
+}
+
+function closeGameResultModal() {
+  if (!gameResultDialogEl) {
+    return;
+  }
+  if (gameResultDialogEl.open) {
+    if (typeof gameResultDialogEl.close === 'function') {
+      gameResultDialogEl.close();
+    } else {
+      gameResultDialogEl.removeAttribute('open');
+    }
+  }
+  postGameModalOpen = false;
+}
+
+function queueEvalSampleForCurrentPosition() {
+  const fen = game.getFen();
+  const ply = game.getMoveHistory().length;
+  const latestCommitted = evalHistoryHuman[evalHistoryHuman.length - 1];
+  const latestQueued = evalHistoryQueue[evalHistoryQueue.length - 1];
+  if (
+    (latestCommitted && latestCommitted.ply === ply && latestCommitted.fen === fen) ||
+    (latestQueued && latestQueued.ply === ply && latestQueued.fen === fen)
+  ) {
+    return;
+  }
+
+  evalHistoryQueue.push({ ply, fen });
+}
+
+function processEvalHistoryQueue() {
+  if (
+    thinking ||
+    evalHistoryBusy ||
+    evalAnalysisBusy ||
+    evalHistoryQueue.length === 0 ||
+    (!isHumanTurn() && !getEffectiveGameStatus().over)
+  ) {
+    return;
+  }
+
+  const next = evalHistoryQueue.shift();
+  if (!next) {
+    return;
+  }
+
+  const token = ++evalHistoryBusyToken;
+  evalHistoryBusy = true;
+  const humanColor = game.getHumanColor();
+
+  engine
+    .analyzePosition(next.fen, 180)
+    .then((rawScore) => {
+      if (token !== evalHistoryBusyToken) {
+        return;
+      }
+      const scoreForHuman = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), humanColor);
+      const nextSample = { ply: next.ply, cp: sanitizeCpForGraph(scoreForHuman), fen: next.fen };
+      const existingIndex = evalHistoryHuman.findIndex((sample) => sample.ply === next.ply);
+      if (existingIndex >= 0) {
+        evalHistoryHuman[existingIndex] = nextSample;
+      } else {
+        evalHistoryHuman.push(nextSample);
+        evalHistoryHuman.sort((a, b) => a.ply - b.ply);
+      }
+      if (postGameModalOpen) {
+        renderGameResultGraph(evalHistoryHuman);
+      }
+      if (showEvalBar && next.fen === game.getFen()) {
+        evalScoreForWhite = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), 'w');
+        lastEvaluatedFen = next.fen;
+        renderEvalBar();
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (token !== evalHistoryBusyToken) {
+        return;
+      }
+      evalHistoryBusy = false;
+      processEvalHistoryQueue();
+    });
+}
+
 function renderEvalBar() {
   evalBarWrapEl.hidden = !showEvalBar;
   if (!showEvalBar) {
@@ -189,7 +441,14 @@ function renderEvalBar() {
 }
 
 function scheduleEvalBarAnalysis() {
-  if (!showEvalBar || thinking || !isHumanTurn() || game.getGameStatus().over) {
+  if (
+    !showEvalBar ||
+    thinking ||
+    !isHumanTurn() ||
+    getEffectiveGameStatus().over ||
+    evalHistoryBusy ||
+    evalHistoryQueue.length > 0
+  ) {
     return;
   }
 
@@ -303,7 +562,7 @@ function applyModeSettingsUi() {
   const isRampfish = activeMode === GAME_MODE.RAMPFISH;
 
   settingLabelEl.textContent = isRampfish
-    ? 'Comebackfish controls'
+    ? 'Clapbackfish controls'
     : isBlindfish
     ? 'Percentage of invisible pieces per turn'
     : 'Blunder Chance';
@@ -316,7 +575,7 @@ function applyModeSettingsUi() {
   blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
   neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
   rampReadonlySettingsEl.hidden = !isRampfish;
-  topbarTitleEl.textContent = isRampfish ? 'Comebackfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
+  topbarTitleEl.textContent = isRampfish ? 'Clapbackfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
   subtitleEl.textContent = isRampfish
     ? 'Makes the comeback of the century.'
     : isBlindfish
@@ -348,19 +607,18 @@ function showSetupScreen(mode) {
   const isRampfish = mode === GAME_MODE.RAMPFISH;
 
   setupTitleEl.textContent = isRampfish
-    ? 'Comebackfish Settings'
+    ? 'Clapbackfish Settings'
     : isBlindfish
       ? 'Blindfish Settings'
       : 'Blunderfish Settings';
   setupSubtitleEl.textContent = isRampfish
-    ? 'Choose how Comebackfish should scale strength over its engine turns.'
+    ? 'Clapbackfish throws in the beginning then clap backs at the end.'
     : isBlindfish
     ? 'Choose how Blindfish should forget pieces before the game starts.'
     : 'Choose how often Blunderfish should blunder before the game starts.';
 
   setupBlunderSettingsEl.hidden = isBlindfish || isRampfish;
   setupBlindSettingsEl.hidden = !isBlindfish;
-  setupRampSettingsEl.hidden = !isRampfish;
   setupFirstGameHintEl.hidden = !isBlindfish;
 
   setupBlunderSliderEl.value = String(blunderChancePercent);
@@ -370,8 +628,6 @@ function showSetupScreen(mode) {
   setupBlindToOwnPiecesEl.checked = blindToOwnPiecesCheckbox.checked;
   setupNeverBlindLastMovedEl.checked = neverBlindLastMovedPiece;
   setupRevealBlindnessEl.checked = revealEngineHints;
-  setupRampDirectionEl.value = rampDirection;
-  setupRampFinalMoveEl.value = String(rampFinalMove);
   setupColorSelectEl.value = preferredHumanColor;
   updateSetupPreviewValues();
 
@@ -401,10 +657,7 @@ function applySetupSelections() {
   }
 
   if (activeMode === GAME_MODE.RAMPFISH) {
-    rampDirection =
-      setupRampDirectionEl.value === RAMP_DIRECTION.DOWN ? RAMP_DIRECTION.DOWN : RAMP_DIRECTION.UP;
-    rampFinalMove = clampFinalMove(setupRampFinalMoveEl.value);
-    setupRampFinalMoveEl.value = String(rampFinalMove);
+    rampFinalMove = RAMP_DEFAULT_FINAL_MOVE;
     revealEngineHints = false;
     revealBlundersCheckbox.checked = false;
     blindToYourPiecesCheckbox.checked = true;
@@ -412,7 +665,6 @@ function applySetupSelections() {
     neverBlindLastMovedPiece = true;
     neverBlindLastMovedCheckbox.checked = true;
     lastRampTargetCp = computeTargetEvalCp({
-      direction: rampDirection,
       engineTurnIndex: 1,
       finalMove: rampFinalMove
     });
@@ -433,13 +685,15 @@ function statusReasonText(reason) {
       return 'Draw by insufficient material';
     case 'fifty_move_rule':
       return 'Draw by fifty-move rule';
+    case 'forfeit':
+      return 'Forfeit';
     default:
       return 'Draw';
   }
 }
 
 function updateStatus() {
-  const status = game.getGameStatus();
+  const status = getEffectiveGameStatus();
   const humanColor = game.getHumanColor();
   const history = game.getMoveHistory();
 
@@ -451,7 +705,8 @@ function updateStatus() {
 
     const winnerName = colorName(status.result);
     const youWon = status.result === humanColor;
-    statusTextEl.textContent = `${winnerName} wins by ${status.reason}. ${youWon ? 'You win.' : 'You lose.'}`;
+    const reason = statusReasonText(status.reason).toLowerCase();
+    statusTextEl.textContent = `${winnerName} wins by ${reason}. ${youWon ? 'You win.' : 'You lose.'}`;
     return;
   }
 
@@ -468,7 +723,7 @@ function updateStatus() {
       activeMode === GAME_MODE.BLINDFISH
         ? 'Blindfish is thinking...'
         : activeMode === GAME_MODE.RAMPFISH
-          ? 'Comebackfish is thinking...'
+          ? 'Clapbackfish is thinking...'
           : 'Blunderfish is thinking...';
     return;
   }
@@ -491,7 +746,7 @@ function updateStatus() {
 }
 
 function updateBoard() {
-  const status = game.getGameStatus();
+  const status = getEffectiveGameStatus();
   const kingOutcome =
     status.over && status.reason === 'checkmate'
       ? {
@@ -659,7 +914,7 @@ function isHumanTurn() {
 }
 
 function canInteract() {
-  return !thinking && !game.getGameStatus().over && isHumanTurn();
+  return !thinking && !getEffectiveGameStatus().over && isHumanTurn();
 }
 
 function updateInteractionMode() {
@@ -678,9 +933,57 @@ function syncDesktopColumnHeights() {
   }
 }
 
+function handleGameConclusionTransition() {
+  const status = getEffectiveGameStatus();
+  if (!status.over || gameConcluded) {
+    return;
+  }
+
+  gameConcluded = true;
+  updatePrimaryTopRightButton();
+  openGameResultModal(status);
+}
+
+function forfeitCurrentGame() {
+  if (getEffectiveGameStatus().over) {
+    return;
+  }
+
+  searchToken += 1;
+  thinking = false;
+  pendingPromotion = null;
+  if (promotionDialog.open) {
+    promotionDialog.close();
+  }
+
+  forcedGameStatus = {
+    over: true,
+    result: oppositeColor(game.getHumanColor()),
+    reason: 'forfeit',
+    check: false
+  };
+  queueEvalSampleForCurrentPosition();
+  processEvalHistoryQueue();
+  refresh();
+}
+
+function returnToMainMenu() {
+  closeGameResultModal();
+  forcedGameStatus = null;
+  gameConcluded = false;
+  gameStarted = false;
+  setModeSelectionDisabled(false);
+  showModeSelectionScreen();
+  gameAppEl.classList.add('app-hidden');
+  updatePrimaryTopRightButton();
+}
+
 function refresh() {
+  updatePrimaryTopRightButton();
+  handleGameConclusionTransition();
   updateRampReadonlyDisplay();
   renderEvalBar();
+  processEvalHistoryQueue();
   scheduleEvalBarAnalysis();
 
   board.setMoveQueryHandlers({
@@ -828,7 +1131,7 @@ async function chooseBlindfishMove(tokenAtStart) {
 }
 
 async function requestEngineMove() {
-  if (game.getGameStatus().over || isHumanTurn()) {
+  if (getEffectiveGameStatus().over || isHumanTurn()) {
     refresh();
     return;
   }
@@ -861,7 +1164,6 @@ async function requestEngineMove() {
 
       computerEngineTurnCount += 1;
       lastRampTargetCp = computeTargetEvalCp({
-        direction: rampDirection,
         engineTurnIndex: computerEngineTurnCount,
         finalMove: rampFinalMove
       });
@@ -962,6 +1264,7 @@ async function requestEngineMove() {
     const result = game.applyMove(selectedMove);
     if (result.ok) {
       lastMove = { from: selectedMove.from, to: selectedMove.to };
+      queueEvalSampleForCurrentPosition();
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -997,6 +1300,7 @@ async function handleHumanMoveAttempt({ from, to }) {
     lastMove = { from, to };
   }
 
+  queueEvalSampleForCurrentPosition();
   refresh();
   await requestEngineMove();
 }
@@ -1014,9 +1318,16 @@ async function startNewGame() {
   evalAnalysisBusy = false;
   evalScoreForWhite = { type: 'cp', value: 0 };
   lastEvaluatedFen = null;
+  closeGameResultModal();
+  postGameModalOpen = false;
+  gameConcluded = false;
+  forcedGameStatus = null;
+  evalHistoryHuman = [];
+  evalHistoryQueue = [];
+  evalHistoryBusy = false;
+  evalHistoryBusyToken += 1;
   computerEngineTurnCount = 0;
   lastRampTargetCp = computeTargetEvalCp({
-    direction: rampDirection,
     engineTurnIndex: 1,
     finalMove: rampFinalMove
   });
@@ -1024,6 +1335,7 @@ async function startNewGame() {
   const humanColor =
     preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;
   game.newGame(humanColor);
+  queueEvalSampleForCurrentPosition();
 
   displayOrientation = humanColor;
 
@@ -1036,6 +1348,10 @@ async function startNewGame() {
 }
 
 newGameBtn.addEventListener('click', () => {
+  if (gameStarted && !getEffectiveGameStatus().over && !gameConcluded) {
+    forfeitCurrentGame();
+    return;
+  }
   startNewGame();
 });
 
@@ -1052,6 +1368,23 @@ exportFenBtn.addEventListener('click', async () => {
   } catch {
     statusTextEl.textContent = `FEN: ${fen}`;
   }
+});
+
+gameResultCloseBtnEl?.addEventListener('click', () => {
+  closeGameResultModal();
+});
+
+gameResultMainMenuBtnEl?.addEventListener('click', () => {
+  returnToMainMenu();
+});
+
+gameResultRematchBtnEl?.addEventListener('click', async () => {
+  closeGameResultModal();
+  await startNewGame();
+});
+
+gameResultDialogEl?.addEventListener('close', () => {
+  postGameModalOpen = false;
 });
 
 boardEl.addEventListener(
@@ -1107,7 +1440,7 @@ async function boot() {
     activeMode === GAME_MODE.BLINDFISH
       ? 'Initializing Blindfish...'
       : activeMode === GAME_MODE.RAMPFISH
-        ? 'Initializing Comebackfish...'
+        ? 'Initializing Clapbackfish...'
         : 'Initializing Blunderfish...';
 
   applyModeSettingsUi();

@@ -145,9 +145,12 @@ describe('rampfish integration', () => {
 
     document.querySelector('#mode-rampfish-btn').click();
 
-    expect(document.querySelector('#setup-ramp-settings').hidden).toBe(false);
-    expect(document.querySelector('#setup-ramp-direction').value).toBe('up');
-    expect(document.querySelector('#setup-ramp-final-move').value).toBe('40');
+    expect(document.querySelector('#setup-ramp-settings')).toBeNull();
+    expect(document.querySelector('#setup-ramp-direction')).toBeNull();
+    expect(document.querySelector('#setup-ramp-final-move')).toBeNull();
+    expect(document.querySelector('#setup-subtitle').textContent).toBe(
+      'Clapbackfish throws in the beginning then clap backs at the end.'
+    );
   });
 
   test('ramp up first engine turn uses max engine settings and target eval readout', async () => {
@@ -173,27 +176,6 @@ describe('rampfish integration', () => {
     expect(document.querySelector('#blunder-slider').parentElement.hidden).toBe(true);
     expect(document.querySelector('#reveal-blunders').parentElement.hidden).toBe(true);
     expect(document.querySelector('#show-eval-bar').parentElement.hidden).toBe(false);
-  });
-
-  test('ramp down first engine turn targets +2000cp', async () => {
-    await import('../src/main.js');
-
-    document.querySelector('#mode-rampfish-btn').click();
-    const colorSelect = document.querySelector('#setup-color-select');
-    colorSelect.value = 'w';
-    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    const direction = document.querySelector('#setup-ramp-direction');
-    direction.value = 'down';
-    direction.dispatchEvent(new Event('change', { bubbles: true }));
-    document.querySelector('#setup-start-btn').click();
-    await flushUi();
-    await flushUi();
-
-    expect(engineMock.getRankedMovesWithScores).toHaveBeenCalledWith(
-      '4k3/8/8/8/8/8/8/4K3 b - - 0 1',
-      { movetimeMs: 1500, multiPv: 1 }
-    );
-    expect(document.querySelector('#ramp-target-cp-value').textContent).toBe('Black +20.00');
   });
 
   test('selects move by engine-perspective score distance to target eval', async () => {

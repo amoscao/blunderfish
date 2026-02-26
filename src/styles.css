@@ -409,6 +409,64 @@ button:hover {
   background: rgba(0, 0, 0, 0.45);
 }
 
+.game-result-dialog {
+  width: min(760px, calc(100vw - 2rem));
+  border: 1px solid #4f3b2a;
+  border-radius: 12px;
+  background: #1c1511;
+  color: var(--text);
+  padding: 0.85rem;
+}
+
+.game-result-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.game-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+#game-result-title {
+  margin: 0;
+  text-align: center;
+  font-size: 1.5rem;
+  flex: 1;
+}
+
+#game-result-close-btn {
+  min-width: 2.1rem;
+  padding: 0.28rem 0.6rem;
+}
+
+.game-result-graph-wrap {
+  margin-top: 0.5rem;
+}
+
+.game-result-axis-label {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  color: #dbc7af;
+  text-align: center;
+}
+
+.game-result-graph {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #5d4a3a;
+  border-radius: 8px;
+  background: #171310;
+}
+
+.game-result-actions {
+  margin-top: 0.7rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .promotion-options {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

@@ -1,8 +1,3 @@
-export const RAMP_DIRECTION = {
-  UP: 'up',
-  DOWN: 'down'
-};
-
 export const RAMP_DEFAULT_FINAL_MOVE = 40;
 export const RAMP_MIN_FINAL_MOVE = 1;
 export const RAMP_TARGET_CP_MIN = -2000;
@@ -48,24 +43,18 @@ function lerpRounded(start, end, progress) {
   return Math.round(start + (end - start) * progress);
 }
 
-export function interpolateRampProfile({ direction, engineTurnIndex, finalMove }) {
+export function interpolateRampProfile({ engineTurnIndex, finalMove }) {
   const progress = computeRampProgress(engineTurnIndex, finalMove);
-  const isDown = direction === RAMP_DIRECTION.DOWN;
-  const start = isDown ? RAMP_PROFILES.MAX : RAMP_PROFILES.MIN;
-  const end = isDown ? RAMP_PROFILES.MIN : RAMP_PROFILES.MAX;
 
   return {
-    skillLevel: lerpRounded(start.skillLevel, end.skillLevel, progress),
-    depth: lerpRounded(start.depth, end.depth, progress),
-    movetimeMs: lerpRounded(start.movetimeMs, end.movetimeMs, progress),
+    skillLevel: lerpRounded(RAMP_PROFILES.MIN.skillLevel, RAMP_PROFILES.MAX.skillLevel, progress),
+    depth: lerpRounded(RAMP_PROFILES.MIN.depth, RAMP_PROFILES.MAX.depth, progress),
+    movetimeMs: lerpRounded(RAMP_PROFILES.MIN.movetimeMs, RAMP_PROFILES.MAX.movetimeMs, progress),
     progress
   };
 }
 
-export function computeTargetEvalCp({ direction, engineTurnIndex, finalMove }) {
+export function computeTargetEvalCp({ engineTurnIndex, finalMove }) {
   const progress = computeRampProgress(engineTurnIndex, finalMove);
-  const isDown = direction === RAMP_DIRECTION.DOWN;
-  const start = isDown ? RAMP_TARGET_CP_MAX : RAMP_TARGET_CP_MIN;
-  const end = isDown ? RAMP_TARGET_CP_MIN : RAMP_TARGET_CP_MAX;
-  return lerpRounded(start, end, progress);
+  return lerpRounded(RAMP_TARGET_CP_MIN, RAMP_TARGET_CP_MAX, progress);
 }

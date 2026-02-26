@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
-import { chooseBlindfishMoveWithRetries, pickFirstLegalMove } from '../src/blindfish.js';
+import {
+  chooseBlindfishMoveWithRetries,
+  chooseOrthodoxBlindfishMove,
+  pickFirstLegalMove,
+  selectHumanBishopSquares
+} from '../src/blindfish.js';
 
 describe('blindfish orchestration', () => {
   test('pickFirstLegalMove returns first legal candidate', () => {
@@ -117,5 +122,90 @@ describe('blindfish orchestration', () => {
     expect(result).toEqual({ from: 'b2', to: 'b3' });
     expect(getRankedMoves).toHaveBeenCalledTimes(1);
     expect(getRankedMoves).toHaveBeenCalledWith('safe-fen', { movetimeMs: 200, multiPv: 10 });
+  });
+
+  test('orthodox selects only human bishop squares', () => {
+    const squares = selectHumanBishopSquares(
+      {
+        c1: { color: 'w', type: 'b' },
+        f1: { color: 'w', type: 'b' },
+        c8: { color: 'b', type: 'b' },
+        e1: { color: 'w', type: 'k' }
+      },
+      'w'
+    );
+
+    expect(squares).toEqual(['c1', 'f1']);
+  });
+
+  test('orthodox falls back to best move when no human bishops exist', async () => {
+    const getBestMove = vi.fn().mockResolvedValue({ from: 'e7', to: 'e5' });
+
+    const result = await chooseOrthodoxBlindfishMove({
+      humanColor: 'w',
+      getPosition: () => ({ e1: { color: 'w', type: 'k' }, e8: { color: 'b', type: 'k' } }),
+      getBestMove,
+      buildBlindFen: vi.fn(),
+      getRankedMoves: vi.fn(),
+      isLegalMove: vi.fn(),
+      getAllLegalMoves: () => [{ from: 'e7', to: 'e5' }],
+      movetimeMs: 200,
+      multiPv: 10,
+      onBlindSelection: vi.fn()
+    });
+
+    expect(result).toEqual({ from: 'e7', to: 'e5' });
+    expect(getBestMove).toHaveBeenCalledTimes(1);
+  });
+
+  test('orthodox uses ranked move when blind fen is safe', async () => {
+    const getRankedMoves = vi.fn().mockResolvedValue([{ from: 'b2', to: 'b3' }]);
+    const getBestMove = vi.fn().mockResolvedValue({ from: 'a7', to: 'a6' });
+    const onBlindSelection = vi.fn();
+
+    const result = await chooseOrthodoxBlindfishMove({
+      humanColor: 'w',
+      getPosition: () => ({
+        c1: { color: 'w', type: 'b' },
+        f1: { color: 'w', type: 'b' },
+        e1: { color: 'w', type: 'k' }
+      }),
+      getBestMove,
+      buildBlindFen: vi.fn().mockReturnValue('blind-fen'),
+      isBlindFenSearchSafe: () => true,
+      getRankedMoves,
+      isLegalMove: () => true,
+      getAllLegalMoves: () => [{ from: 'b2', to: 'b3' }],
+      movetimeMs: 200,
+      multiPv: 10,
+      onBlindSelection
+    });
+
+    expect(result).toEqual({ from: 'b2', to: 'b3' });
+    expect(onBlindSelection).toHaveBeenCalledWith(['c1', 'f1']);
+    expect(getRankedMoves).toHaveBeenCalledWith('blind-fen', { movetimeMs: 200, multiPv: 10 });
+    expect(getBestMove).not.toHaveBeenCalled();
+  });
+
+  test('orthodox falls back to best move when blind fen is unsafe', async () => {
+    const getBestMove = vi.fn().mockResolvedValue({ from: 'a7', to: 'a6' });
+    const getRankedMoves = vi.fn();
+
+    const result = await chooseOrthodoxBlindfishMove({
+      humanColor: 'w',
+      getPosition: () => ({ c1: { color: 'w', type: 'b' }, e1: { color: 'w', type: 'k' } }),
+      getBestMove,
+      buildBlindFen: vi.fn().mockReturnValue('unsafe-fen'),
+      isBlindFenSearchSafe: () => false,
+      getRankedMoves,
+      isLegalMove: () => true,
+      getAllLegalMoves: () => [{ from: 'a7', to: 'a6' }],
+      movetimeMs: 200,
+      multiPv: 10
+    });
+
+    expect(result).toEqual({ from: 'a7', to: 'a6' });
+    expect(getBestMove).toHaveBeenCalledTimes(1);
+    expect(getRankedMoves).not.toHaveBeenCalled();
   });
 });

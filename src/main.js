@@ -1,11 +1,12 @@
 import { createBoard } from './board.js';
 import { createEngine } from './engine.js';
 import { createGame } from './game.js';
-import { chooseBlindfishMoveWithRetries } from './blindfish.js';
+import { chooseBlindfishMoveWithRetries, chooseOrthodoxBlindfishMove } from './blindfish.js';
 
 const GAME_MODE = {
   BLUNDERFISH: 'blunderfish',
-  BLINDFISH: 'blindfish'
+  BLINDFISH: 'blindfish',
+  BLINDFISH_ORTHODOX: 'blindfish-orthodox'
 };
 
 const BLUNDER_CHANCE_DEFAULT = 20;
@@ -34,6 +35,8 @@ const neverBlindLastMovedCheckbox = document.querySelector('#never-blind-last-mo
 const settingLabelEl = document.querySelector('#setting-label');
 const revealSettingLabelEl = document.querySelector('#reveal-setting-label');
 const settingPercentSymbolEl = document.querySelector('#setting-percent-symbol');
+const settingsControlsEl = document.querySelector('#settings-controls');
+const orthodoxSettingsNoteEl = document.querySelector('#orthodox-settings-note');
 const opponentCapturesEl = document.querySelector('#opponent-captures');
 const yourCapturesEl = document.querySelector('#your-captures');
 const opponentCaptureScoreEl = document.querySelector('#opponent-capture-score');
@@ -42,6 +45,7 @@ const modeSelectScreenEl = document.querySelector('#mode-select-screen');
 const setupScreenEl = document.querySelector('#setup-screen');
 const modeBlunderfishBtn = document.querySelector('#mode-blunderfish-btn');
 const modeBlindfishBtn = document.querySelector('#mode-blindfish-btn');
+const modeBlindfishOrthodoxBtn = document.querySelector('#mode-blindfish-orthodox-btn');
 const modeSelectNoteEl = document.querySelector('#mode-select-note');
 const setupTitleEl = document.querySelector('#setup-title');
 const setupSubtitleEl = document.querySelector('#setup-subtitle');
@@ -57,6 +61,7 @@ const setupBlindToYourPiecesEl = document.querySelector('#setup-blind-to-your-pi
 const setupBlindToOwnPiecesEl = document.querySelector('#setup-blind-to-own-pieces');
 const setupNeverBlindLastMovedEl = document.querySelector('#setup-never-blind-last-moved');
 const setupRevealBlindnessEl = document.querySelector('#setup-reveal-blindness');
+const setupOrthodoxSettingsEl = document.querySelector('#setup-orthodox-settings');
 const setupColorSelectEl = document.querySelector('#setup-color-select');
 const setupBackBtn = document.querySelector('#setup-back-btn');
 const setupStartBtn = document.querySelector('#setup-start-btn');
@@ -145,12 +150,24 @@ function pieceImageName(color, type) {
   return `${color}_${nameByType[type]}_png_128px.png`;
 }
 
+function isBlunderfishMode(mode = activeMode) {
+  return mode === GAME_MODE.BLUNDERFISH;
+}
+
+function isBlindfishMode(mode = activeMode) {
+  return mode === GAME_MODE.BLINDFISH;
+}
+
+function isOrthodoxMode(mode = activeMode) {
+  return mode === GAME_MODE.BLINDFISH_ORTHODOX;
+}
+
 function getSettingMax() {
-  return activeMode === GAME_MODE.BLINDFISH ? BLINDNESS_MAX : BLUNDER_MAX;
+  return isBlindfishMode() ? BLINDNESS_MAX : BLUNDER_MAX;
 }
 
 function getCurrentSettingValue() {
-  return activeMode === GAME_MODE.BLINDFISH ? pieceBlindnessPercent : blunderChancePercent;
+  return isBlindfishMode() ? pieceBlindnessPercent : blunderChancePercent;
 }
 
 function clampSettingValue(value) {
@@ -163,7 +180,7 @@ function clampSettingValue(value) {
 
 function setSettingControls(nextValue) {
   const value = clampSettingValue(nextValue);
-  if (activeMode === GAME_MODE.BLINDFISH) {
+  if (isBlindfishMode()) {
     pieceBlindnessPercent = value;
   } else {
     blunderChancePercent = value;
@@ -174,24 +191,33 @@ function setSettingControls(nextValue) {
 }
 
 function applyModeSettingsUi() {
-  const isBlindfish = activeMode === GAME_MODE.BLINDFISH;
+  const orthodoxMode = isOrthodoxMode();
+  const blindfishMode = isBlindfishMode();
 
-  settingLabelEl.textContent = isBlindfish
+  settingLabelEl.textContent = blindfishMode
     ? 'Percentage of invisible pieces per turn'
     : 'Blunder Chance';
-  revealSettingLabelEl.textContent = isBlindfish ? 'Reveal Blindness' : 'Reveal Blunders';
+  revealSettingLabelEl.textContent = blindfishMode ? 'Reveal Blindness' : 'Reveal Blunders';
   settingPercentSymbolEl.hidden = false;
-  blindToYourPiecesCheckbox.parentElement.hidden = !isBlindfish;
-  blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
-  neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
-  topbarTitleEl.textContent = isBlindfish ? 'Blindfish' : 'Blunderfish';
-  subtitleEl.textContent = isBlindfish
-    ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
-    : 'Max difficulty stockfish but it is forced to randomly play blunders';
+  settingsControlsEl.hidden = orthodoxMode;
+  orthodoxSettingsNoteEl.hidden = !orthodoxMode;
+  blindToYourPiecesCheckbox.parentElement.hidden = !blindfishMode;
+  blindToOwnPiecesCheckbox.parentElement.hidden = !blindfishMode;
+  neverBlindLastMovedCheckbox.parentElement.hidden = !blindfishMode;
+  topbarTitleEl.textContent = orthodoxMode
+    ? 'Blindfish (Orthodox)'
+    : blindfishMode
+      ? 'Blindfish'
+      : 'Blunderfish';
+  subtitleEl.textContent = orthodoxMode
+    ? "Blindfish is always blind to your bishops during its turns."
+    : blindfishMode
+      ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
+      : 'Max difficulty stockfish but it is forced to randomly play blunders';
 
   blunderSlider.max = String(getSettingMax());
   blunderInput.max = String(getSettingMax());
-  setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+  setSettingControls(blindfishMode ? pieceBlindnessPercent : blunderChancePercent);
 }
 
 function updateSetupPreviewValues() {
@@ -206,16 +232,24 @@ function showModeSelectionScreen() {
 
 function showSetupScreen(mode) {
   activeMode = mode;
-  const isBlindfish = mode === GAME_MODE.BLINDFISH;
+  const orthodoxMode = isOrthodoxMode(mode);
+  const blindfishMode = isBlindfishMode(mode);
 
-  setupTitleEl.textContent = isBlindfish ? 'Blindfish Settings' : 'Blunderfish Settings';
-  setupSubtitleEl.textContent = isBlindfish
-    ? 'Choose how Blindfish should forget pieces before the game starts.'
-    : 'Choose how often Blunderfish should blunder before the game starts.';
+  setupTitleEl.textContent = orthodoxMode
+    ? 'Blindfish (Orthodox) Settings'
+    : blindfishMode
+      ? 'Blindfish Settings'
+      : 'Blunderfish Settings';
+  setupSubtitleEl.textContent = orthodoxMode
+    ? 'Orthodox rules: Blindfish is always blind to your bishops on its turns.'
+    : blindfishMode
+      ? 'Choose how Blindfish should forget pieces before the game starts.'
+      : 'Choose how often Blunderfish should blunder before the game starts.';
 
-  setupBlunderSettingsEl.hidden = isBlindfish;
-  setupBlindSettingsEl.hidden = !isBlindfish;
-  setupFirstGameHintEl.hidden = !isBlindfish;
+  setupBlunderSettingsEl.hidden = !isBlunderfishMode(mode);
+  setupBlindSettingsEl.hidden = !blindfishMode;
+  setupOrthodoxSettingsEl.hidden = !orthodoxMode;
+  setupFirstGameHintEl.hidden = !blindfishMode;
 
   setupBlunderSliderEl.value = String(blunderChancePercent);
   setupBlindSliderEl.value = String(pieceBlindnessPercent);
@@ -234,7 +268,7 @@ function showSetupScreen(mode) {
 function applySetupSelections() {
   preferredHumanColor = setupColorSelectEl.value;
 
-  if (activeMode === GAME_MODE.BLINDFISH) {
+  if (isBlindfishMode()) {
     pieceBlindnessPercent = clampSettingValue(Number(setupBlindSliderEl.value));
     revealEngineHints = Boolean(setupRevealBlindnessEl.checked);
     blindToYourPiecesCheckbox.checked = Boolean(setupBlindToYourPiecesEl.checked);
@@ -242,7 +276,7 @@ function applySetupSelections() {
     neverBlindLastMovedPiece = Boolean(setupNeverBlindLastMovedEl.checked);
     neverBlindLastMovedCheckbox.checked = neverBlindLastMovedPiece;
     revealBlundersCheckbox.checked = revealEngineHints;
-  } else {
+  } else if (isBlunderfishMode()) {
     blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
     revealEngineHints = Boolean(setupRevealBlundersEl.checked);
     revealBlundersCheckbox.checked = revealEngineHints;
@@ -250,6 +284,12 @@ function applySetupSelections() {
     blindToOwnPiecesCheckbox.checked = true;
     neverBlindLastMovedPiece = true;
     neverBlindLastMovedCheckbox.checked = true;
+  } else {
+    blindToYourPiecesCheckbox.checked = true;
+    blindToOwnPiecesCheckbox.checked = true;
+    neverBlindLastMovedPiece = true;
+    neverBlindLastMovedCheckbox.checked = true;
+    revealBlundersCheckbox.checked = true;
   }
 }
 
@@ -299,11 +339,11 @@ function updateStatus() {
 
   if (!isHumanToMove) {
     statusTextEl.textContent =
-      activeMode === GAME_MODE.BLINDFISH ? 'Blindfish is thinking...' : 'Blunderfish is thinking...';
+      isBlindfishMode() || isOrthodoxMode() ? 'Blindfish is thinking...' : 'Blunderfish is thinking...';
     return;
   }
 
-  if (activeMode === GAME_MODE.BLUNDERFISH) {
+  if (isBlunderfishMode()) {
     const lastMoveIndex = history.length - 1;
     const lastMoveKind = computerMoveKinds.get(lastMoveIndex);
     if (revealEngineHints && lastMoveKind === 'random') {
@@ -336,7 +376,7 @@ function updateBoard() {
   board.setKingOutcome(kingOutcome);
   board.setBlindMarkers({
     squares: Array.from(currentBlindSquares),
-    visible: activeMode === GAME_MODE.BLINDFISH && revealEngineHints
+    visible: isOrthodoxMode() || (isBlindfishMode() && revealEngineHints)
   });
   board.render(game.getPosition(), displayOrientation);
   updateStatus();
@@ -556,6 +596,36 @@ async function askPromotion(color) {
 async function chooseBlindfishMove(tokenAtStart) {
   const humanColor = game.getHumanColor();
   const computerColor = oppositeColor(humanColor);
+
+  const onBlindSelection = (blindSquares) => {
+    if (tokenAtStart !== searchToken) {
+      return;
+    }
+    blindSelectionTurnToken += 1;
+    currentBlindSquares = new Set(blindSquares);
+    refresh();
+  };
+
+  if (isOrthodoxMode()) {
+    const legalMoves = game.getAllLegalMoves();
+    const candidateCeiling = Math.min(60, Math.max(10, legalMoves.length * 2));
+    return chooseOrthodoxBlindfishMove({
+      humanColor,
+      getPosition: () => game.getPosition(),
+      getBestMove: () => engine.getBestMove(game.getFen(), 1500),
+      buildBlindFen: (blindSquares) => game.buildBlindFen(blindSquares),
+      isBlindFenSearchSafe: (fen) => game.isBlindFenSearchSafe(fen),
+      getRankedMoves: (fen, options) => engine.getRankedMoves(fen, options),
+      isLegalMove: (move) => game.isLegalMove(move),
+      getAllLegalMoves: () => game.getAllLegalMoves(),
+      movetimeMs: 1500,
+      multiPv: candidateCeiling,
+      onBlindSelection,
+      shouldContinue: () => tokenAtStart === searchToken,
+      rng: Math.random
+    });
+  }
+
   const includeHumanPieces = Boolean(blindToYourPiecesCheckbox.checked);
   const includeComputerPieces = Boolean(blindToOwnPiecesCheckbox.checked);
 
@@ -618,14 +688,7 @@ async function chooseBlindfishMove(tokenAtStart) {
     getRankedMoves: (fen, options) => engine.getRankedMoves(fen, options),
     isLegalMove: (move) => game.isLegalMove(move),
     getAllLegalMoves: () => game.getAllLegalMoves(),
-    onBlindSelection: (blindSquares) => {
-      if (tokenAtStart !== searchToken) {
-        return;
-      }
-      blindSelectionTurnToken += 1;
-      currentBlindSquares = new Set(blindSquares);
-      refresh();
-    },
+    onBlindSelection,
     shouldContinue: () => tokenAtStart === searchToken,
     rng: Math.random
   });
@@ -648,7 +711,7 @@ async function requestEngineMove() {
     let selectedMove;
     let preScoreForComputer = null;
 
-    if (activeMode === GAME_MODE.BLINDFISH) {
+    if (isBlindfishMode() || isOrthodoxMode()) {
       selectedMove = await chooseBlindfishMove(tokenAtStart);
       if (!selectedMove) {
         refresh();
@@ -806,7 +869,7 @@ neverBlindLastMovedCheckbox.addEventListener('change', (event) => {
 
 async function boot() {
   statusTextEl.textContent =
-    activeMode === GAME_MODE.BLINDFISH ? 'Initializing Blindfish...' : 'Initializing Blunderfish...';
+    isBlindfishMode() || isOrthodoxMode() ? 'Initializing Blindfish...' : 'Initializing Blunderfish...';
 
   applyModeSettingsUi();
   revealEngineHints = Boolean(revealBlundersCheckbox.checked);
@@ -819,6 +882,7 @@ async function boot() {
 function setModeSelectionDisabled(disabled) {
   modeBlunderfishBtn.disabled = disabled;
   modeBlindfishBtn.disabled = disabled;
+  modeBlindfishOrthodoxBtn.disabled = disabled;
   setupStartBtn.disabled = disabled;
   setupBackBtn.disabled = disabled;
 }
@@ -864,6 +928,10 @@ setupStartBtn.addEventListener('click', async () => {
 
 modeBlindfishBtn.addEventListener('click', () => {
   showSetupScreen(GAME_MODE.BLINDFISH);
+});
+
+modeBlindfishOrthodoxBtn.addEventListener('click', () => {
+  showSetupScreen(GAME_MODE.BLINDFISH_ORTHODOX);
 });
 
 modeBlunderfishBtn.addEventListener('click', () => {

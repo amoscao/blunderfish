@@ -24,6 +24,10 @@
             <span class="mode-name">Blindfish</span>
             <span class="mode-description">Max difficulty stockfish but it randomly forgets about pieces</span>
           </button>
+          <button id="mode-blindfish-orthodox-btn" class="mode-button mode-button-secondary" type="button">
+            <span class="mode-name">Blindfish (Orthodox)</span>
+            <span class="mode-description">Max difficulty stockfish but always blind to your bishops</span>
+          </button>
         </div>
         <p id="mode-select-note" class="mode-note" aria-live="polite"></p>
       </div>
@@ -90,6 +94,11 @@
           </label>
         </div>
 
+        <div id="setup-orthodox-settings" hidden>
+          <p class="setup-hint">Orthodox rules are fixed for this mode.</p>
+          <p class="setup-hint">Blindfish is always blind to your bishops, and blind markers are always shown.</p>
+        </div>
+
         <label class="setting-label" for="setup-color-select">Play as</label>
         <select id="setup-color-select" class="setup-select">
           <option value="random" selected>Random</option>
@@ -141,48 +150,54 @@
 
           <section class="settings-panel" aria-label="Settings">
             <h2>Settings</h2>
-            <label id="setting-label" class="setting-label" for="blunder-slider">
-              Blunder Chance
-            </label>
-            <div class="setting-row">
-              <input
-                id="blunder-slider"
-                class="dilution-slider"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value="20"
-              />
-              <input
-                id="blunder-input"
-                class="dilution-input"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value="20"
-                inputmode="numeric"
-                aria-label="Blunder chance percentage"
-              />
-              <span id="setting-percent-symbol" class="percent-symbol">%</span>
+            <div id="settings-controls">
+              <label id="setting-label" class="setting-label" for="blunder-slider">
+                Blunder Chance
+              </label>
+              <div class="setting-row">
+                <input
+                  id="blunder-slider"
+                  class="dilution-slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="20"
+                />
+                <input
+                  id="blunder-input"
+                  class="dilution-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="20"
+                  inputmode="numeric"
+                  aria-label="Blunder chance percentage"
+                />
+                <span id="setting-percent-symbol" class="percent-symbol">%</span>
+              </div>
+              <label class="setting-checkbox">
+                <input id="blind-to-your-pieces" type="checkbox" checked />
+                <span>Blind to your pieces</span>
+              </label>
+              <label class="setting-checkbox">
+                <input id="blind-to-own-pieces" type="checkbox" checked />
+                <span>Blind to its own pieces</span>
+              </label>
+              <label class="setting-checkbox">
+                <input id="never-blind-last-moved" type="checkbox" checked />
+                <span>Never blind to the last moved piece</span>
+              </label>
+              <label class="setting-checkbox">
+                <input id="reveal-blunders" type="checkbox" checked />
+                <span id="reveal-setting-label">Reveal Blunders</span>
+              </label>
             </div>
-            <label class="setting-checkbox">
-              <input id="blind-to-your-pieces" type="checkbox" checked />
-              <span>Blind to your pieces</span>
-            </label>
-            <label class="setting-checkbox">
-              <input id="blind-to-own-pieces" type="checkbox" checked />
-              <span>Blind to its own pieces</span>
-            </label>
-            <label class="setting-checkbox">
-              <input id="never-blind-last-moved" type="checkbox" checked />
-              <span>Never blind to the last moved piece</span>
-            </label>
-            <label class="setting-checkbox">
-              <input id="reveal-blunders" type="checkbox" checked />
-              <span id="reveal-setting-label">Reveal Blunders</span>
-            </label>
+            <div id="orthodox-settings-note" hidden>
+              <p>Blindfish is always blind to your bishops on its turns.</p>
+              <p>Blind markers are always shown.</p>
+            </div>
           </section>
 
           <section class="moves-panel" aria-label="Move list">

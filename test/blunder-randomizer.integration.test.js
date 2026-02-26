@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const bagMock = vi.hoisted(() => ({
+const smootherMock = vi.hoisted(() => ({
   next: vi.fn(() => false),
   reset: vi.fn()
 }));
@@ -78,7 +78,7 @@ function createGameDouble() {
 }
 
 vi.mock('../src/blunder-smoother.js', () => ({
-  createBlunderDecisionSmoother: vi.fn(() => bagMock)
+  createBlunderDecisionSmoother: vi.fn(() => smootherMock)
 }));
 
 vi.mock('../src/engine.js', () => ({
@@ -129,7 +129,7 @@ describe('blunder randomizer integration', () => {
     });
   });
 
-  test('uses bag decisions on engine turns', async () => {
+  test('uses smoother decisions on engine turns', async () => {
     await import('../src/main.js');
 
     document.querySelector('#mode-blunderfish-btn').click();
@@ -137,10 +137,10 @@ describe('blunder randomizer integration', () => {
     await flushUi();
     await flushUi();
 
-    expect(bagMock.next).toHaveBeenCalled();
+    expect(smootherMock.next).toHaveBeenCalled();
   });
 
-  test('resets bag when slider changes and on new game', async () => {
+  test('resets smoother when slider changes and on new game', async () => {
     await import('../src/main.js');
 
     document.querySelector('#mode-blunderfish-btn').click();
@@ -148,15 +148,15 @@ describe('blunder randomizer integration', () => {
     await flushUi();
     await flushUi();
 
-    const resetsAfterBoot = bagMock.reset.mock.calls.length;
+    const resetsAfterBoot = smootherMock.reset.mock.calls.length;
 
     const slider = document.querySelector('#blunder-slider');
     slider.value = '33';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(bagMock.reset.mock.calls.length).toBe(resetsAfterBoot + 1);
+    expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 1);
 
     document.querySelector('#new-game-btn').click();
     await flushUi();
-    expect(bagMock.reset.mock.calls.length).toBe(resetsAfterBoot + 2);
+    expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 2);
   });
 });

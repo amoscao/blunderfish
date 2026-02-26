@@ -2,6 +2,7 @@ import { createBoard } from './board.js';
 import { createEngine } from './engine.js';
 import { createGame } from './game.js';
 import { chooseBlindfishMoveWithRetries } from './blindfish.js';
+import { createBlunderDecisionSmoother } from './blunder-smoother.js';
 
 const GAME_MODE = {
   BLUNDERFISH: 'blunderfish',
@@ -83,6 +84,7 @@ let lastBoardTouchEndTs = 0;
 let gameStarted = false;
 let currentBlindSquares = new Set();
 let blindSelectionTurnToken = 0;
+const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
 const PIECE_VALUES = { p: 1, b: 3, n: 3, r: 5, q: 9 };
@@ -167,6 +169,7 @@ function setSettingControls(nextValue) {
     pieceBlindnessPercent = value;
   } else {
     blunderChancePercent = value;
+    blunderDecisionSmoother.reset();
   }
 
   blunderSlider.value = String(value);
@@ -657,7 +660,7 @@ async function requestEngineMove() {
       computerMoveKinds.set(historyPlyIndex, 'blind');
       randomMoveHurts.delete(historyPlyIndex);
     } else {
-      const useRandomMove = Math.random() < blunderChancePercent / 100;
+      const useRandomMove = blunderDecisionSmoother.next(blunderChancePercent);
 
       if (useRandomMove) {
         const preScoreRaw = await engine.analyzePosition(game.getFen(), 350);
@@ -743,6 +746,7 @@ async function startNewGame() {
   computerMoveKinds = new Map();
   randomMoveHurts = new Map();
   currentBlindSquares = new Set();
+  blunderDecisionSmoother.reset();
 
   const humanColor =
     preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;

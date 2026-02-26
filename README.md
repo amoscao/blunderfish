@@ -9,6 +9,13 @@ https://www.youtube.com/watch?v=DpXy041BIlA
 Stockfish still runs at max strength, but you control a configurable **Blunder Chance** that makes it play random legal moves some percentage of the time.  
 Sometimes it calculates like a machine. Sometimes it forgets what game it's playing.
 
+## Game modes
+### Blunderfish
+Max difficulty stockfish, but it is forced to randomly make a blunder.
+
+### Blindfish
+Max difficulty stockfish, but it randomly forgets about pieces on the board before evaluating its move
+
 ## Local Development
 
 ### Prerequisites

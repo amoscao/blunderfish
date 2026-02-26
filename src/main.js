@@ -16,12 +16,15 @@ const MAX_BLIND_RETRIES = 3;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
+const boardWrapEl = document.querySelector('.board-wrap');
+const rightColumnEl = document.querySelector('.right-column');
 const gameAppEl = document.querySelector('#game-app');
 const newGameBtn = document.querySelector('#new-game-btn');
 const flipBoardBtn = document.querySelector('#flip-board-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
+const movesTableWrapEl = document.querySelector('.moves-table-wrap');
 const blunderSlider = document.querySelector('#blunder-slider');
 const blunderInput = document.querySelector('#blunder-input');
 const revealBlundersCheckbox = document.querySelector('#reveal-blunders');
@@ -375,6 +378,10 @@ function updateMovesTable() {
     row.innerHTML = `<td>${moveNumber}.</td><td${whiteClass}>${whiteMove}</td><td${blackClass}>${blackMove}</td>`;
     movesBody.appendChild(row);
   }
+
+  if (movesTableWrapEl) {
+    movesTableWrapEl.scrollTop = movesTableWrapEl.scrollHeight;
+  }
 }
 
 function calculateCapturedPiecesByColor(positionBySquare) {
@@ -467,6 +474,18 @@ function updateInteractionMode() {
   board.setInteractionEnabled(canInteract());
 }
 
+function syncDesktopColumnHeights() {
+  if (!boardWrapEl || !rightColumnEl) {
+    return;
+  }
+
+  if (window.matchMedia('(min-width: 641px)').matches) {
+    rightColumnEl.style.height = `${Math.round(boardWrapEl.getBoundingClientRect().height)}px`;
+  } else {
+    rightColumnEl.style.removeProperty('height');
+  }
+}
+
 function refresh() {
   board.setMoveQueryHandlers({
     canSelectSquare: (_square, piece) => {
@@ -485,6 +504,7 @@ function refresh() {
   updateBoard();
   updateCapturesPanel();
   updateMovesTable();
+  syncDesktopColumnHeights();
 }
 
 function showPromotionPicker(color) {
@@ -847,4 +867,8 @@ modeBlindfishBtn.addEventListener('click', () => {
 
 modeBlunderfishBtn.addEventListener('click', () => {
   showSetupScreen(GAME_MODE.BLUNDERFISH);
+});
+
+window.addEventListener('resize', () => {
+  syncDesktopColumnHeights();
 });

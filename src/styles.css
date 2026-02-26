@@ -198,6 +198,13 @@ button:hover {
   min-height: 0;
 }
 
+@media (min-width: 641px) {
+  .right-column {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
 .board-wrap {
   background: linear-gradient(180deg, #2b2018 0%, #1f1712 100%);
   border: 1px solid #463527;

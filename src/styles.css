@@ -137,6 +137,10 @@ body {
   color: #d8c7b3;
 }
 
+.setup-mode-settings {
+  margin-bottom: 1rem;
+}
+
 .topbar {
   display: flex;
   align-items: center;

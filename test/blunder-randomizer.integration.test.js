@@ -220,7 +220,7 @@ describe('blunder randomizer integration', () => {
     await flushUi();
     await flushUi();
 
-    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('-1.20');
   });
 
   test('eval bar shows white-perspective sign when player is black (engine white)', async () => {

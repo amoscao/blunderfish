@@ -31,6 +31,7 @@ const BLUNDER_MAX = 100;
 const MAX_BLIND_RETRIES = 3;
 const RAMP_MAX_SKILL_LEVEL = 20;
 const ENGINE_MOVETIME_DEFAULT_MS = 1500;
+const POST_COMPUTER_EVAL_MS = 350;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
@@ -127,16 +128,11 @@ let gameStarted = false;
 let currentBlindSquares = new Set();
 let blindSelectionTurnToken = 0;
 let evalScoreForWhite = { type: 'cp', value: 0 };
-let lastEvaluatedFen = null;
-let evalAnalysisBusy = false;
-let evalAnalysisToken = 0;
+let evalSampleToken = 0;
 let postGameModalOpen = false;
 let gameConcluded = false;
 let forcedGameStatus = null;
 let evalHistoryHuman = [];
-let evalHistoryQueue = [];
-let evalHistoryBusy = false;
-let evalHistoryBusyToken = 0;
 let gameGeneration = 0;
 const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
@@ -413,99 +409,7 @@ function bumpGeneration(reason = 'generation_changed') {
   if (typeof engine.flushAnalysis === 'function') {
     engine.flushAnalysis(reason);
   }
-  evalAnalysisToken += 1;
-  evalAnalysisBusy = false;
-  evalHistoryBusy = false;
-  evalHistoryBusyToken += 1;
-  evalHistoryQueue = [];
-  lastEvaluatedFen = null;
-}
-
-function queueEvalSampleForCurrentPosition() {
-  const fen = game.getFen();
-  const ply = game.getMoveHistory().length;
-  const generation = gameGeneration;
-  const latestCommitted = evalHistoryHuman[evalHistoryHuman.length - 1];
-  const latestQueued = evalHistoryQueue[evalHistoryQueue.length - 1];
-  if (
-    (latestCommitted &&
-      latestCommitted.ply === ply &&
-      latestCommitted.fen === fen &&
-      latestCommitted.generation === generation) ||
-    (latestQueued &&
-      latestQueued.ply === ply &&
-      latestQueued.fen === fen &&
-      latestQueued.generation === generation)
-  ) {
-    return;
-  }
-
-  evalHistoryQueue.push({ ply, fen, generation });
-}
-
-function processEvalHistoryQueue() {
-  if (
-    thinking ||
-    evalHistoryBusy ||
-    evalAnalysisBusy ||
-    evalHistoryQueue.length === 0 ||
-    (!isHumanTurn() && !getEffectiveGameStatus().over)
-  ) {
-    return;
-  }
-
-  const next = evalHistoryQueue.shift();
-  if (!next) {
-    return;
-  }
-  if (next.generation !== gameGeneration) {
-    processEvalHistoryQueue();
-    return;
-  }
-
-  const token = ++evalHistoryBusyToken;
-  evalHistoryBusy = true;
-  const humanColor = game.getHumanColor();
-
-  engine
-    .analyzePosition(next.fen, 180)
-    .then((rawScore) => {
-      if (token !== evalHistoryBusyToken || next.generation !== gameGeneration) {
-        return;
-      }
-      const scoreForHuman = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), humanColor);
-      const nextSample = {
-        ply: next.ply,
-        cp: sanitizeCpForGraph(scoreForHuman),
-        fen: next.fen,
-        generation: next.generation
-      };
-      const existingIndex = evalHistoryHuman.findIndex(
-        (sample) => sample.ply === next.ply && sample.generation === next.generation
-      );
-      if (existingIndex >= 0) {
-        evalHistoryHuman[existingIndex] = nextSample;
-      } else {
-        evalHistoryHuman.push(nextSample);
-        evalHistoryHuman.sort((a, b) => a.ply - b.ply);
-      }
-      if (postGameModalOpen) {
-        renderGameResultGraph(evalHistoryHuman);
-      }
-      if (showEvalBar && next.fen === game.getFen() && next.generation === gameGeneration) {
-        evalScoreForWhite = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), 'w');
-        lastEvaluatedFen = next.fen;
-        renderEvalBar();
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      if (token !== evalHistoryBusyToken) {
-        return;
-      }
-      evalHistoryBusy = false;
-      processEvalHistoryQueue();
-    });
+  evalSampleToken += 1;
 }
 
 function renderEvalBar() {
@@ -520,48 +424,38 @@ function renderEvalBar() {
   evalBarLabelEl.textContent = formatEvalLabel(scoreForHuman);
 }
 
-function scheduleEvalBarAnalysis() {
-  if (
-    !showEvalBar ||
-    thinking ||
-    !isHumanTurn() ||
-    getEffectiveGameStatus().over ||
-    evalHistoryBusy ||
-    evalHistoryQueue.length > 0
-  ) {
-    return;
-  }
-
-  const fen = game.getFen();
-  if (evalAnalysisBusy || fen === lastEvaluatedFen) {
-    return;
-  }
-
-  const generationSnapshot = gameGeneration;
-  const analysisToken = ++evalAnalysisToken;
-  evalAnalysisBusy = true;
-
+function analyzeAndCommitPostComputerSample({ fen, ply, generation }) {
+  const token = ++evalSampleToken;
+  const humanColor = game.getHumanColor();
   engine
-    .analyzePosition(fen, 350)
+    .analyzePosition(fen, POST_COMPUTER_EVAL_MS)
     .then((rawScore) => {
-      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
+      if (token !== evalSampleToken || generation !== gameGeneration) {
         return;
       }
-      evalScoreForWhite = scoreToColorPerspective(rawScore, game.getTurn(), 'w');
-      lastEvaluatedFen = fen;
+      evalScoreForWhite = scoreToColorPerspective(rawScore, parseFenTurn(fen), 'w');
+      const scoreForHuman = scoreToColorPerspective(rawScore, parseFenTurn(fen), humanColor);
+      const nextSample = {
+        ply,
+        cp: sanitizeCpForGraph(scoreForHuman),
+        fen,
+        generation
+      };
+      const existingIndex = evalHistoryHuman.findIndex(
+        (sample) => sample.ply === ply && sample.generation === generation
+      );
+      if (existingIndex >= 0) {
+        evalHistoryHuman[existingIndex] = nextSample;
+      } else {
+        evalHistoryHuman.push(nextSample);
+        evalHistoryHuman.sort((a, b) => a.ply - b.ply);
+      }
       renderEvalBar();
+      if (postGameModalOpen) {
+        renderGameResultGraph(evalHistoryHuman);
+      }
     })
-    .catch(() => {})
-    .finally(() => {
-      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
-        return;
-      }
-      evalAnalysisBusy = false;
-      processEvalHistoryQueue();
-      if (showEvalBar && !thinking && isHumanTurn() && game.getFen() !== lastEvaluatedFen) {
-        scheduleEvalBarAnalysis();
-      }
-    });
+    .catch(() => {});
 }
 
 function pieceImageName(color, type) {
@@ -1047,8 +941,6 @@ function forfeitCurrentGame() {
     reason: 'forfeit',
     check: false
   };
-  queueEvalSampleForCurrentPosition();
-  processEvalHistoryQueue();
   refresh();
 }
 
@@ -1069,8 +961,6 @@ function refresh() {
   handleGameConclusionTransition();
   updateRampReadonlyDisplay();
   renderEvalBar();
-  processEvalHistoryQueue();
-  scheduleEvalBarAnalysis();
 
   board.setMoveQueryHandlers({
     canSelectSquare: (_square, piece) => {
@@ -1354,7 +1244,13 @@ async function requestEngineMove() {
     const result = game.applyMove(selectedMove);
     if (result.ok) {
       lastMove = { from: selectedMove.from, to: selectedMove.to };
-      queueEvalSampleForCurrentPosition();
+      if (isHumanTurn() && !getEffectiveGameStatus().over) {
+        void analyzeAndCommitPostComputerSample({
+          fen: game.getFen(),
+          ply: game.getMoveHistory().length,
+          generation: gameGeneration
+        });
+      }
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -1390,7 +1286,6 @@ async function handleHumanMoveAttempt({ from, to }) {
     lastMove = { from, to };
   }
 
-  queueEvalSampleForCurrentPosition();
   refresh();
   await requestEngineMove();
 }
@@ -1406,7 +1301,6 @@ async function startNewGame() {
   currentBlindSquares = new Set();
   blunderDecisionSmoother.reset();
   evalScoreForWhite = { type: 'cp', value: 0 };
-  lastEvaluatedFen = null;
   closeGameResultModal();
   postGameModalOpen = false;
   gameConcluded = false;
@@ -1421,7 +1315,6 @@ async function startNewGame() {
   const humanColor =
     preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;
   game.newGame(humanColor);
-  queueEvalSampleForCurrentPosition();
 
   displayOrientation = humanColor;
 
@@ -1508,12 +1401,6 @@ revealBlundersCheckbox.addEventListener('change', (event) => {
 
 showEvalBarCheckbox.addEventListener('change', (event) => {
   showEvalBar = Boolean(event.target.checked);
-  if (!showEvalBar) {
-    evalAnalysisToken += 1;
-    evalAnalysisBusy = false;
-  } else {
-    lastEvaluatedFen = null;
-  }
   refresh();
 });
 

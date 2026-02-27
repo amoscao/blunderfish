@@ -109,6 +109,38 @@ describe('engine worker integration', () => {
     await expect(movePromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
   });
 
+  test('getBestMove normalizes invalid object search options to safe defaults', async () => {
+    const { engine, playWorker } = createWithWorkers();
+
+    const movePromise = engine.getBestMove('bad-options-fen', {
+      movetimeMs: 0,
+      depth: -3
+    });
+    expect(playWorker.messages).toEqual(['position fen bad-options-fen', 'go movetime 1500']);
+
+    playWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(movePromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
+  });
+
+  test('getBestMove legacy numeric mode preserves provided numeric movetime', async () => {
+    const { engine, playWorker } = createWithWorkers();
+
+    const zeroPromise = engine.getBestMove('legacy-zero', 0);
+    expect(playWorker.messages).toEqual(['position fen legacy-zero', 'go movetime 0']);
+    playWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(zeroPromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
+
+    const negativePromise = engine.getBestMove('legacy-negative', -50);
+    expect(playWorker.messages).toEqual([
+      'position fen legacy-zero',
+      'go movetime 0',
+      'position fen legacy-negative',
+      'go movetime -50'
+    ]);
+    playWorker.emit('bestmove d2d4 ponder d7d5');
+    await expect(negativePromise).resolves.toEqual({ from: 'd2', to: 'd4', promotion: undefined });
+  });
+
   test('getRankedMoves uses multipv lines and fallback bestmove rank-1', async () => {
     const { engine, playWorker } = createWithWorkers();
 
@@ -145,6 +177,31 @@ describe('engine worker integration', () => {
     playWorker.emit('info depth 11 multipv 1 score cp 20 pv e2e4 e7e5');
     playWorker.emit('bestmove e2e4 ponder e7e5');
     await expect(movesPromise).resolves.toEqual([{ from: 'e2', to: 'e4', promotion: undefined }]);
+  });
+
+  test('getRankedMovesWithScores clamps invalid multipv and ignores invalid depth', async () => {
+    const { engine, playWorker } = createWithWorkers();
+
+    const entriesPromise = engine.getRankedMovesWithScores('normalized-fen', {
+      movetimeMs: 120,
+      multiPv: 0,
+      depth: 'x'
+    });
+
+    expect(playWorker.messages).toEqual([
+      'setoption name MultiPV value 1',
+      'position fen normalized-fen',
+      'go movetime 120'
+    ]);
+
+    playWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(entriesPromise).resolves.toEqual([
+      {
+        rank: 1,
+        move: { from: 'e2', to: 'e4', promotion: undefined },
+        score: null
+      }
+    ]);
   });
 
   test('getRankedMovesWithScores returns rank and cp score metadata', async () => {

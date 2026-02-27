@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { parseBestMoveLine, parseInfoMultiPvLine, rankAndDedupeMoves } from '../src/engine.js';
+import {
+  parseBestMoveLine,
+  parseInfoMultiPvLine,
+  rankAndDedupeMoveEntries,
+  rankAndDedupeMoves
+} from '../src/engine.js';
 
 describe('engine parse helpers', () => {
   test('parses basic bestmove line', () => {
@@ -43,6 +48,50 @@ describe('engine parse helpers', () => {
     });
   });
 
+  test('parses multipv score mate lines', () => {
+    expect(
+      parseInfoMultiPvLine('info depth 20 multipv 1 score mate 3 pv h5f7 e8f7')
+    ).toEqual({
+      rank: 1,
+      move: {
+        from: 'h5',
+        to: 'f7',
+        promotion: undefined
+      },
+      score: {
+        type: 'mate',
+        value: 3
+      }
+    });
+
+    expect(
+      parseInfoMultiPvLine('info depth 18 multipv 2 score mate -2 pv g2g4 d8h4')
+    ).toEqual({
+      rank: 2,
+      move: {
+        from: 'g2',
+        to: 'g4',
+        promotion: undefined
+      },
+      score: {
+        type: 'mate',
+        value: -2
+      }
+    });
+  });
+
+  test('returns null score metadata when multipv line has no score segment', () => {
+    expect(parseInfoMultiPvLine('info depth 10 multipv 1 nodes 123 pv e2e4')).toEqual({
+      rank: 1,
+      move: {
+        from: 'e2',
+        to: 'e4',
+        promotion: undefined
+      },
+      score: null
+    });
+  });
+
   test('returns null for malformed multipv lines', () => {
     expect(parseInfoMultiPvLine('info depth 10 pv e2e4')).toBeNull();
     expect(parseInfoMultiPvLine('info depth 10 multipv 2 score cp 20')).toBeNull();
@@ -61,6 +110,21 @@ describe('engine parse helpers', () => {
       { from: 'e2', to: 'e4' },
       { from: 'd2', to: 'd4' },
       { from: 'g1', to: 'f3' }
+    ]);
+  });
+
+  test('orders ranked move entries and keeps lowest-rank duplicate', () => {
+    expect(
+      rankAndDedupeMoveEntries([
+        { rank: 5, move: { from: 'd2', to: 'd4' }, score: { type: 'cp', value: 10 } },
+        { rank: 2, move: { from: 'e2', to: 'e4' }, score: { type: 'cp', value: 20 } },
+        { rank: 3, move: { from: 'e2', to: 'e4' }, score: { type: 'cp', value: 19 } },
+        { rank: 4, move: { from: 'g1', to: 'f3' }, score: { type: 'cp', value: 8 } }
+      ])
+    ).toEqual([
+      { rank: 2, move: { from: 'e2', to: 'e4' }, score: { type: 'cp', value: 20 } },
+      { rank: 4, move: { from: 'g1', to: 'f3' }, score: { type: 'cp', value: 8 } },
+      { rank: 5, move: { from: 'd2', to: 'd4' }, score: { type: 'cp', value: 10 } }
     ]);
   });
 });

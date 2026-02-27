@@ -7,5 +7,7 @@ describe('settings visibility CSS regression', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
 
     expect(css).toMatch(/\.setting-checkbox\[hidden\]\s*\{[^}]*display\s*:\s*none\s*;/);
+    expect(css).toMatch(/\.setting-label\[hidden\]\s*\{[^}]*display\s*:\s*none\s*;/);
+    expect(css).toMatch(/\.setting-row\[hidden\]\s*\{[^}]*display\s*:\s*none\s*;/);
   });
 });

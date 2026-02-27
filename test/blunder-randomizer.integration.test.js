@@ -16,6 +16,7 @@ const engineMock = vi.hoisted(() => ({
   getBestMove: vi.fn().mockResolvedValue({ from: 'a7', to: 'a6' }),
   analyzePosition: vi.fn().mockResolvedValue({ type: 'cp', value: 0 }),
   getRankedMoves: vi.fn().mockResolvedValue([]),
+  flushAnalysis: vi.fn(),
   terminate: vi.fn()
 }));
 
@@ -127,6 +128,12 @@ describe('blunder randomizer integration', () => {
         dispatchEvent: vi.fn()
       })
     });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined)
+      }
+    });
   });
 
   test('uses smoother decisions on engine turns', async () => {
@@ -157,6 +164,98 @@ describe('blunder randomizer integration', () => {
 
     document.querySelector('#new-game-btn').click();
     await flushUi();
+    await flushUi();
+    document.querySelector('#new-game-btn').click();
+    await flushUi();
     expect(smootherMock.reset.mock.calls.length).toBe(resetsAfterBoot + 2);
+  });
+
+  test('eval bar is visible by default and requests eval analysis', async () => {
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    const evalWrap = document.querySelector('#eval-bar-wrap');
+    expect(evalWrap.hidden).toBe(false);
+    expect(engineMock.analyzePosition).toHaveBeenCalled();
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+0.00');
+  });
+
+  test('exports current FEN to clipboard', async () => {
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    const exportBtn = document.querySelector('#export-fen-btn');
+    exportBtn.click();
+    await flushUi();
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      '4k3/8/8/8/8/8/8/4K3 b - - 0 1'
+    );
+    expect(document.querySelector('#status-text').textContent).toContain('FEN copied');
+  });
+
+  test('eval bar shows human-perspective sign when player is white (engine black)', async () => {
+    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'w';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    const evalToggle = document.querySelector('#show-eval-bar');
+    evalToggle.checked = true;
+    evalToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUi();
+    await flushUi();
+
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
+  });
+
+  test('eval bar shows white-perspective sign when player is black (engine white)', async () => {
+    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'b';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    const evalToggle = document.querySelector('#show-eval-bar');
+    evalToggle.checked = true;
+    evalToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushUi();
+    await flushUi();
+
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
+  });
+
+  test('eval bar label should be positive when human (black) is winning', async () => {
+    engineMock.analyzePosition.mockResolvedValue({ type: 'cp', value: 120 });
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'b';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(document.querySelector('#eval-bar-label').textContent).toBe('+1.20');
   });
 });

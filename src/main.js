@@ -3,10 +3,25 @@ import { createEngine } from './engine.js';
 import { createGame } from './game.js';
 import { chooseBlindfishMoveWithRetries } from './blindfish.js';
 import { createBlunderDecisionSmoother } from './blunder-smoother.js';
+import { formatEvalLabel, scoreToWhitePercent } from './eval-bar.js';
+import {
+  buildAxisTicks,
+  buildPolylinePoints,
+  computeSymmetricYRange,
+  sanitizeCpForGraph
+} from './eval-graph.js';
+import {
+  RAMP_DEFAULT_FINAL_MOVE,
+  RAMP_TARGET_CP_MAX,
+  RAMP_TARGET_CP_MIN,
+  computeTargetEvalCp,
+  isPostRampPhase
+} from './rampfish.js';
 
 const GAME_MODE = {
   BLUNDERFISH: 'blunderfish',
-  BLINDFISH: 'blindfish'
+  BLINDFISH: 'blindfish',
+  RAMPFISH: 'rampfish'
 };
 
 const BLUNDER_CHANCE_DEFAULT = 20;
@@ -14,6 +29,8 @@ const PIECE_BLINDNESS_DEFAULT = 10;
 const BLINDNESS_MAX = 20;
 const BLUNDER_MAX = 100;
 const MAX_BLIND_RETRIES = 3;
+const RAMP_MAX_SKILL_LEVEL = 20;
+const ENGINE_MOVETIME_DEFAULT_MS = 1500;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
@@ -22,6 +39,7 @@ const rightColumnEl = document.querySelector('.right-column');
 const gameAppEl = document.querySelector('#game-app');
 const newGameBtn = document.querySelector('#new-game-btn');
 const flipBoardBtn = document.querySelector('#flip-board-btn');
+const exportFenBtn = document.querySelector('#export-fen-btn');
 const promotionDialog = document.querySelector('#promotion-dialog');
 const promotionOptions = document.querySelector('#promotion-options');
 const movesBody = document.querySelector('#moves-body');
@@ -29,6 +47,7 @@ const movesTableWrapEl = document.querySelector('.moves-table-wrap');
 const blunderSlider = document.querySelector('#blunder-slider');
 const blunderInput = document.querySelector('#blunder-input');
 const revealBlundersCheckbox = document.querySelector('#reveal-blunders');
+const showEvalBarCheckbox = document.querySelector('#show-eval-bar');
 const blindToYourPiecesCheckbox = document.querySelector('#blind-to-your-pieces');
 const blindToOwnPiecesCheckbox = document.querySelector('#blind-to-own-pieces');
 const neverBlindLastMovedCheckbox = document.querySelector('#never-blind-last-moved');
@@ -43,6 +62,7 @@ const modeSelectScreenEl = document.querySelector('#mode-select-screen');
 const setupScreenEl = document.querySelector('#setup-screen');
 const modeBlunderfishBtn = document.querySelector('#mode-blunderfish-btn');
 const modeBlindfishBtn = document.querySelector('#mode-blindfish-btn');
+const modeRampfishBtn = document.querySelector('#mode-rampfish-btn');
 const modeSelectNoteEl = document.querySelector('#mode-select-note');
 const setupTitleEl = document.querySelector('#setup-title');
 const setupSubtitleEl = document.querySelector('#setup-subtitle');
@@ -63,6 +83,21 @@ const setupBackBtn = document.querySelector('#setup-back-btn');
 const setupStartBtn = document.querySelector('#setup-start-btn');
 const topbarTitleEl = document.querySelector('.topbar h1');
 const subtitleEl = document.querySelector('.subtitle');
+const settingRowEl = blunderSlider.parentElement;
+const revealSettingCheckboxEl = revealBlundersCheckbox.parentElement;
+const rampReadonlySettingsEl = document.querySelector('#ramp-readonly-settings');
+const rampTargetCpValueEl = document.querySelector('#ramp-target-cp-value');
+const evalBarWrapEl = document.querySelector('#eval-bar-wrap');
+const evalBarWhiteFillEl = document.querySelector('#eval-bar-white-fill');
+const evalBarLabelEl = document.querySelector('#eval-bar-label');
+const gameResultDialogEl = document.querySelector('#game-result-dialog');
+const gameResultTitleEl = document.querySelector('#game-result-title');
+const gameResultCloseBtnEl = document.querySelector('#game-result-close-btn');
+const gameResultGraphEl = document.querySelector('#game-result-graph');
+const gameResultXLabelEl = document.querySelector('#game-result-graph-x-label');
+const gameResultYLabelEl = document.querySelector('#game-result-graph-y-label');
+const gameResultMainMenuBtnEl = document.querySelector('#game-result-main-menu-btn');
+const gameResultRematchBtnEl = document.querySelector('#game-result-rematch-btn');
 
 const game = createGame();
 const engine = createEngine();
@@ -78,12 +113,31 @@ let pieceBlindnessPercent = PIECE_BLINDNESS_DEFAULT;
 let computerMoveKinds = new Map();
 let randomMoveHurts = new Map();
 let revealEngineHints = true;
+let showEvalBar = false;
 let neverBlindLastMovedPiece = true;
 let preferredHumanColor = 'random';
+let rampFinalMove = RAMP_DEFAULT_FINAL_MOVE;
+let computerEngineTurnCount = 0;
+let lastRampTargetCp = computeTargetEvalCp({
+  engineTurnIndex: 1,
+  finalMove: rampFinalMove
+});
 let lastBoardTouchEndTs = 0;
 let gameStarted = false;
 let currentBlindSquares = new Set();
 let blindSelectionTurnToken = 0;
+let evalScoreForWhite = { type: 'cp', value: 0 };
+let lastEvaluatedFen = null;
+let evalAnalysisBusy = false;
+let evalAnalysisToken = 0;
+let postGameModalOpen = false;
+let gameConcluded = false;
+let forcedGameStatus = null;
+let evalHistoryHuman = [];
+let evalHistoryQueue = [];
+let evalHistoryBusy = false;
+let evalHistoryBusyToken = 0;
+let gameGeneration = 0;
 const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
@@ -95,6 +149,23 @@ const board = createBoard({
   container: boardEl,
   onHumanMoveAttempt: handleHumanMoveAttempt
 });
+
+function readConfiguredEngineMovetimeMs() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('engineMovetimeMs');
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return ENGINE_MOVETIME_DEFAULT_MS;
+    }
+    return Math.max(10, Math.min(5000, Math.round(parsed)));
+  } catch {
+    return ENGINE_MOVETIME_DEFAULT_MS;
+  }
+}
+
+const ENGINE_MOVETIME_MS = readConfiguredEngineMovetimeMs();
+const RANDOM_MOVE_DELAY_MS = ENGINE_MOVETIME_MS;
 
 function randomColor() {
   return Math.random() < 0.5 ? 'w' : 'b';
@@ -108,20 +179,30 @@ function oppositeColor(color) {
   return color === 'w' ? 'b' : 'w';
 }
 
+function getEffectiveGameStatus() {
+  return forcedGameStatus || game.getGameStatus();
+}
+
+function parseFenTurn(fen) {
+  const tokens = String(fen || '').trim().split(/\s+/);
+  return tokens[1] === 'b' ? 'b' : 'w';
+}
+
+function updatePrimaryTopRightButton() {
+  const status = getEffectiveGameStatus();
+  newGameBtn.textContent = gameStarted && !status.over && !gameConcluded ? 'Forfeit' : 'New Game';
+}
+
+function moveKey(move) {
+  return `${move.from}${move.to}${move.promotion || ''}`;
+}
+
 function scoreToColorPerspective(score, scoreSideToMove, targetColor) {
   const multiplier = scoreSideToMove === targetColor ? 1 : -1;
   return {
     type: score.type,
     value: score.value * multiplier
   };
-}
-
-function scoreToComparableCp(score) {
-  if (score.type === 'cp') {
-    return score.value;
-  }
-
-  return score.value > 0 ? 100000 : -100000;
 }
 
 function randomMoveHurtItself(preScoreForComputer, postScoreForComputer) {
@@ -136,6 +217,353 @@ function randomMoveHurtItself(preScoreForComputer, postScoreForComputer) {
   return preComparable - postComparable >= CONFUSION_HURT_THRESHOLD_CP;
 }
 
+function scoreToComparableCp(score) {
+  if (score.type === 'cp') {
+    return score.value;
+  }
+
+  return score.value > 0 ? 100000 : -100000;
+}
+
+function outcomeTitleText(status) {
+  if (status.result === 'draw') {
+    return 'Draw!';
+  }
+  return status.result === game.getHumanColor() ? 'You won!' : 'You lost :(';
+}
+
+function mapPlotX(ply, maxPly, width) {
+  if (maxPly <= 0) {
+    return 0;
+  }
+  return (ply / maxPly) * width;
+}
+
+function mapPlotY(cp, minCp, maxCp, height) {
+  const span = Math.max(1, maxCp - minCp);
+  return ((maxCp - cp) / span) * height;
+}
+
+function renderGameResultGraph(history) {
+  if (!gameResultGraphEl) {
+    return;
+  }
+
+  const width = 680;
+  const height = 280;
+  const margin = { left: 62, right: 22, top: 18, bottom: 42 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const samples = history.length > 0 ? history : [{ ply: 0, cp: 0 }];
+  const yRange = computeSymmetricYRange(samples.map((sample) => sample.cp));
+  const maxPly = Math.max(0, ...samples.map((sample) => sample.ply));
+  const ticks = buildAxisTicks(maxPly, yRange);
+  const polylinePoints = buildPolylinePoints(
+    samples.map((sample) => ({ ply: sample.ply, cp: sample.cp })),
+    { width: plotWidth, height: plotHeight },
+    yRange
+  );
+  const yZero = mapPlotY(0, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+
+  const xTickMarkup = ticks.xTicks
+    .map((tick) => {
+      const x = mapPlotX(tick.value, maxPly, plotWidth) + margin.left;
+      return `<g>
+  <line x1="${x.toFixed(2)}" y1="${margin.top + plotHeight}" x2="${x.toFixed(
+        2
+      )}" y2="${(margin.top + plotHeight + 5).toFixed(2)}" stroke="#8d7460" />
+  <text x="${x.toFixed(2)}" y="${(height - 12).toFixed(2)}" fill="#dbc7af" font-size="12" text-anchor="${
+        tick.value === 0 ? 'start' : 'end'
+      }">${tick.label}</text>
+</g>`;
+    })
+    .join('');
+
+  const yTickMarkup = ticks.yTicks
+    .map((tick) => {
+      const y = mapPlotY(tick.value, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+      return `<g>
+  <line x1="${(margin.left - 5).toFixed(2)}" y1="${y.toFixed(2)}" x2="${margin.left.toFixed(
+        2
+      )}" y2="${y.toFixed(2)}" stroke="#8d7460" />
+  <text x="${(margin.left - 9).toFixed(2)}" y="${(y + 4).toFixed(
+        2
+      )}" fill="#dbc7af" font-size="12" text-anchor="end">${tick.label}</text>
+</g>`;
+    })
+    .join('');
+
+  const shouldShowTargetLine = activeMode === GAME_MODE.RAMPFISH;
+  let targetLineMarkup = '';
+  let targetLegendMarkup = '';
+  if (shouldShowTargetLine) {
+    const engineColor = oppositeColor(game.getHumanColor());
+    const engineMovePlyForTurn = (turn) => (engineColor === 'w' ? 2 * turn - 1 : 2 * turn);
+    const clampToRange = (cp) => Math.max(yRange.minCp, Math.min(yRange.maxCp, cp));
+    const targetSamples = [];
+
+    const startTargetHumanCp = -computeTargetEvalCp({
+      engineTurnIndex: 1,
+      finalMove: rampFinalMove
+    });
+    targetSamples.push({ ply: 0, cp: clampToRange(startTargetHumanCp) });
+
+    for (let turn = 1; turn <= rampFinalMove; turn += 1) {
+      const ply = engineMovePlyForTurn(turn);
+      if (ply > maxPly) {
+        break;
+      }
+      targetSamples.push({
+        ply,
+        cp: clampToRange(-computeTargetEvalCp({ engineTurnIndex: turn, finalMove: rampFinalMove }))
+      });
+    }
+
+    const lastTarget = targetSamples[targetSamples.length - 1];
+    if (lastTarget.ply < maxPly) {
+      const postRampHumanCp = clampToRange(
+        -computeTargetEvalCp({
+          engineTurnIndex: rampFinalMove + 1,
+          finalMove: rampFinalMove
+        })
+      );
+      targetSamples.push({ ply: maxPly, cp: postRampHumanCp });
+    }
+
+    const targetPoints = targetSamples
+      .map((sample) => {
+        const x = mapPlotX(sample.ply, maxPly, plotWidth) + margin.left;
+        const y = mapPlotY(sample.cp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(' ');
+
+    const legendX = margin.left + plotWidth - 130;
+    const legendY = margin.top + 14;
+
+    targetLineMarkup = `<polyline id="game-result-target-line" fill="none" stroke="#e05252" stroke-width="2" points="${targetPoints}"></polyline>`;
+    targetLegendMarkup = `<g id="game-result-target-legend">
+  <line x1="${legendX.toFixed(2)}" y1="${legendY.toFixed(2)}" x2="${(legendX + 22).toFixed(
+      2
+    )}" y2="${legendY.toFixed(2)}" stroke="#e05252" stroke-width="2"></line>
+  <text x="${(legendX + 28).toFixed(2)}" y="${(legendY + 4).toFixed(
+      2
+    )}" fill="#e8c1c1" font-size="12" text-anchor="start">Target Eval</text>
+</g>`;
+  }
+
+  gameResultGraphEl.innerHTML = `
+    <rect x="0" y="0" width="${width}" height="${height}" fill="#171310"></rect>
+    <line x1="${margin.left}" y1="${margin.top + plotHeight}" x2="${margin.left + plotWidth}" y2="${
+      margin.top + plotHeight
+    }" stroke="#8d7460" stroke-width="1"></line>
+    <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotHeight}" stroke="#8d7460" stroke-width="1"></line>
+    <line x1="${margin.left}" y1="${yZero.toFixed(2)}" x2="${margin.left + plotWidth}" y2="${yZero.toFixed(
+      2
+    )}" stroke="#4c677d" stroke-width="1" stroke-dasharray="4 4"></line>
+    ${xTickMarkup}
+    ${yTickMarkup}
+    ${targetLineMarkup}
+    ${targetLegendMarkup}
+    <g transform="translate(${margin.left}, ${margin.top})">
+      <polyline fill="none" stroke="#d7a86e" stroke-width="2" points="${polylinePoints}"></polyline>
+    </g>
+  `;
+}
+
+function openGameResultModal(status) {
+  if (!gameResultDialogEl || !gameResultTitleEl) {
+    return;
+  }
+
+  gameResultTitleEl.textContent = outcomeTitleText(status);
+  if (gameResultXLabelEl) {
+    gameResultXLabelEl.textContent = 'Half-move (ply)';
+  }
+  if (gameResultYLabelEl) {
+    gameResultYLabelEl.textContent = 'Eval (pawns, human perspective)';
+  }
+  renderGameResultGraph(evalHistoryHuman);
+  if (!gameResultDialogEl.open) {
+    if (typeof gameResultDialogEl.showModal === 'function') {
+      gameResultDialogEl.showModal();
+    } else {
+      gameResultDialogEl.setAttribute('open', '');
+    }
+  }
+  postGameModalOpen = true;
+}
+
+function closeGameResultModal() {
+  if (!gameResultDialogEl) {
+    return;
+  }
+  if (gameResultDialogEl.open) {
+    if (typeof gameResultDialogEl.close === 'function') {
+      gameResultDialogEl.close();
+    } else {
+      gameResultDialogEl.removeAttribute('open');
+    }
+  }
+  postGameModalOpen = false;
+}
+
+function bumpGeneration(reason = 'generation_changed') {
+  gameGeneration += 1;
+  if (typeof engine.flushAnalysis === 'function') {
+    engine.flushAnalysis(reason);
+  }
+  evalAnalysisToken += 1;
+  evalAnalysisBusy = false;
+  evalHistoryBusy = false;
+  evalHistoryBusyToken += 1;
+  evalHistoryQueue = [];
+  lastEvaluatedFen = null;
+}
+
+function queueEvalSampleForCurrentPosition() {
+  const fen = game.getFen();
+  const ply = game.getMoveHistory().length;
+  const generation = gameGeneration;
+  const latestCommitted = evalHistoryHuman[evalHistoryHuman.length - 1];
+  const latestQueued = evalHistoryQueue[evalHistoryQueue.length - 1];
+  if (
+    (latestCommitted &&
+      latestCommitted.ply === ply &&
+      latestCommitted.fen === fen &&
+      latestCommitted.generation === generation) ||
+    (latestQueued &&
+      latestQueued.ply === ply &&
+      latestQueued.fen === fen &&
+      latestQueued.generation === generation)
+  ) {
+    return;
+  }
+
+  evalHistoryQueue.push({ ply, fen, generation });
+}
+
+function processEvalHistoryQueue() {
+  if (
+    thinking ||
+    evalHistoryBusy ||
+    evalAnalysisBusy ||
+    evalHistoryQueue.length === 0 ||
+    (!isHumanTurn() && !getEffectiveGameStatus().over)
+  ) {
+    return;
+  }
+
+  const next = evalHistoryQueue.shift();
+  if (!next) {
+    return;
+  }
+  if (next.generation !== gameGeneration) {
+    processEvalHistoryQueue();
+    return;
+  }
+
+  const token = ++evalHistoryBusyToken;
+  evalHistoryBusy = true;
+  const humanColor = game.getHumanColor();
+
+  engine
+    .analyzePosition(next.fen, 180)
+    .then((rawScore) => {
+      if (token !== evalHistoryBusyToken || next.generation !== gameGeneration) {
+        return;
+      }
+      const scoreForHuman = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), humanColor);
+      const nextSample = {
+        ply: next.ply,
+        cp: sanitizeCpForGraph(scoreForHuman),
+        fen: next.fen,
+        generation: next.generation
+      };
+      const existingIndex = evalHistoryHuman.findIndex(
+        (sample) => sample.ply === next.ply && sample.generation === next.generation
+      );
+      if (existingIndex >= 0) {
+        evalHistoryHuman[existingIndex] = nextSample;
+      } else {
+        evalHistoryHuman.push(nextSample);
+        evalHistoryHuman.sort((a, b) => a.ply - b.ply);
+      }
+      if (postGameModalOpen) {
+        renderGameResultGraph(evalHistoryHuman);
+      }
+      if (showEvalBar && next.fen === game.getFen() && next.generation === gameGeneration) {
+        evalScoreForWhite = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), 'w');
+        lastEvaluatedFen = next.fen;
+        renderEvalBar();
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (token !== evalHistoryBusyToken) {
+        return;
+      }
+      evalHistoryBusy = false;
+      processEvalHistoryQueue();
+    });
+}
+
+function renderEvalBar() {
+  evalBarWrapEl.hidden = !showEvalBar;
+  if (!showEvalBar) {
+    return;
+  }
+
+  const whitePct = scoreToWhitePercent(evalScoreForWhite);
+  evalBarWhiteFillEl.style.width = `${whitePct}%`;
+  const scoreForHuman = scoreToColorPerspective(evalScoreForWhite, 'w', game.getHumanColor());
+  evalBarLabelEl.textContent = formatEvalLabel(scoreForHuman);
+}
+
+function scheduleEvalBarAnalysis() {
+  if (
+    !showEvalBar ||
+    thinking ||
+    !isHumanTurn() ||
+    getEffectiveGameStatus().over ||
+    evalHistoryBusy ||
+    evalHistoryQueue.length > 0
+  ) {
+    return;
+  }
+
+  const fen = game.getFen();
+  if (evalAnalysisBusy || fen === lastEvaluatedFen) {
+    return;
+  }
+
+  const generationSnapshot = gameGeneration;
+  const analysisToken = ++evalAnalysisToken;
+  evalAnalysisBusy = true;
+
+  engine
+    .analyzePosition(fen, 350)
+    .then((rawScore) => {
+      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
+        return;
+      }
+      evalScoreForWhite = scoreToColorPerspective(rawScore, game.getTurn(), 'w');
+      lastEvaluatedFen = fen;
+      renderEvalBar();
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
+        return;
+      }
+      evalAnalysisBusy = false;
+      processEvalHistoryQueue();
+      if (showEvalBar && !thinking && isHumanTurn() && game.getFen() !== lastEvaluatedFen) {
+        scheduleEvalBarAnalysis();
+      }
+    });
+}
+
 function pieceImageName(color, type) {
   const nameByType = {
     p: 'pawn',
@@ -148,11 +576,23 @@ function pieceImageName(color, type) {
 }
 
 function getSettingMax() {
-  return activeMode === GAME_MODE.BLINDFISH ? BLINDNESS_MAX : BLUNDER_MAX;
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    return BLINDNESS_MAX;
+  }
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return 0;
+  }
+  return BLUNDER_MAX;
 }
 
 function getCurrentSettingValue() {
-  return activeMode === GAME_MODE.BLINDFISH ? pieceBlindnessPercent : blunderChancePercent;
+  if (activeMode === GAME_MODE.BLINDFISH) {
+    return pieceBlindnessPercent;
+  }
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return 0;
+  }
+  return blunderChancePercent;
 }
 
 function clampSettingValue(value) {
@@ -164,6 +604,10 @@ function clampSettingValue(value) {
 }
 
 function setSettingControls(nextValue) {
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    return;
+  }
+
   const value = clampSettingValue(nextValue);
   if (activeMode === GAME_MODE.BLINDFISH) {
     pieceBlindnessPercent = value;
@@ -176,25 +620,57 @@ function setSettingControls(nextValue) {
   blunderInput.value = String(value);
 }
 
+function colorLabel(color) {
+  return color === 'w' ? 'White' : 'Black';
+}
+
+function formatTargetEvalWinnerCentric(cp) {
+  const engineColor = oppositeColor(game.getHumanColor());
+  const magnitude = (Math.abs(cp) / 100).toFixed(2);
+  if (cp === 0) {
+    return `Equal ${magnitude}`;
+  }
+
+  const winningColor = cp > 0 ? engineColor : oppositeColor(engineColor);
+  return `${colorLabel(winningColor)} +${magnitude}`;
+}
+
+function updateRampReadonlyDisplay() {
+  rampTargetCpValueEl.textContent = formatTargetEvalWinnerCentric(lastRampTargetCp);
+}
+
 function applyModeSettingsUi() {
   const isBlindfish = activeMode === GAME_MODE.BLINDFISH;
+  const isRampfish = activeMode === GAME_MODE.RAMPFISH;
 
-  settingLabelEl.textContent = isBlindfish
+  settingLabelEl.textContent = isRampfish
+    ? 'Clapbackfish controls'
+    : isBlindfish
     ? 'Percentage of invisible pieces per turn'
     : 'Blunder Chance';
   revealSettingLabelEl.textContent = isBlindfish ? 'Reveal Blindness' : 'Reveal Blunders';
-  settingPercentSymbolEl.hidden = false;
+  settingPercentSymbolEl.hidden = isRampfish;
+  settingLabelEl.hidden = isRampfish;
+  settingRowEl.hidden = isRampfish;
+  revealSettingCheckboxEl.hidden = isRampfish;
   blindToYourPiecesCheckbox.parentElement.hidden = !isBlindfish;
   blindToOwnPiecesCheckbox.parentElement.hidden = !isBlindfish;
   neverBlindLastMovedCheckbox.parentElement.hidden = !isBlindfish;
-  topbarTitleEl.textContent = isBlindfish ? 'Blindfish' : 'Blunderfish';
-  subtitleEl.textContent = isBlindfish
+  rampReadonlySettingsEl.hidden = !isRampfish;
+  topbarTitleEl.textContent = isRampfish ? 'Clapbackfish' : isBlindfish ? 'Blindfish' : 'Blunderfish';
+  subtitleEl.textContent = isRampfish
+    ? 'Makes the comeback of the century.'
+    : isBlindfish
     ? 'Blindfish is max difficulty stockfish, but it evaluates positions while blind to selected pieces.'
     : 'Max difficulty stockfish but it is forced to randomly play blunders';
 
-  blunderSlider.max = String(getSettingMax());
-  blunderInput.max = String(getSettingMax());
-  setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+  if (!isRampfish) {
+    blunderSlider.max = String(getSettingMax());
+    blunderInput.max = String(getSettingMax());
+    setSettingControls(isBlindfish ? pieceBlindnessPercent : blunderChancePercent);
+  }
+
+  updateRampReadonlyDisplay();
 }
 
 function updateSetupPreviewValues() {
@@ -210,13 +686,20 @@ function showModeSelectionScreen() {
 function showSetupScreen(mode) {
   activeMode = mode;
   const isBlindfish = mode === GAME_MODE.BLINDFISH;
+  const isRampfish = mode === GAME_MODE.RAMPFISH;
 
-  setupTitleEl.textContent = isBlindfish ? 'Blindfish Settings' : 'Blunderfish Settings';
-  setupSubtitleEl.textContent = isBlindfish
+  setupTitleEl.textContent = isRampfish
+    ? 'Clapbackfish Settings'
+    : isBlindfish
+      ? 'Blindfish Settings'
+      : 'Blunderfish Settings';
+  setupSubtitleEl.textContent = isRampfish
+    ? 'Clapbackfish throws in the beginning then clap backs at the end.'
+    : isBlindfish
     ? 'Choose how Blindfish should forget pieces before the game starts.'
     : 'Choose how often Blunderfish should blunder before the game starts.';
 
-  setupBlunderSettingsEl.hidden = isBlindfish;
+  setupBlunderSettingsEl.hidden = isBlindfish || isRampfish;
   setupBlindSettingsEl.hidden = !isBlindfish;
   setupFirstGameHintEl.hidden = !isBlindfish;
 
@@ -245,15 +728,31 @@ function applySetupSelections() {
     neverBlindLastMovedPiece = Boolean(setupNeverBlindLastMovedEl.checked);
     neverBlindLastMovedCheckbox.checked = neverBlindLastMovedPiece;
     revealBlundersCheckbox.checked = revealEngineHints;
-  } else {
-    blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
-    revealEngineHints = Boolean(setupRevealBlundersEl.checked);
-    revealBlundersCheckbox.checked = revealEngineHints;
+    return;
+  }
+
+  if (activeMode === GAME_MODE.RAMPFISH) {
+    rampFinalMove = RAMP_DEFAULT_FINAL_MOVE;
+    revealEngineHints = false;
+    revealBlundersCheckbox.checked = false;
     blindToYourPiecesCheckbox.checked = true;
     blindToOwnPiecesCheckbox.checked = true;
     neverBlindLastMovedPiece = true;
     neverBlindLastMovedCheckbox.checked = true;
+    lastRampTargetCp = computeTargetEvalCp({
+      engineTurnIndex: 1,
+      finalMove: rampFinalMove
+    });
+    return;
   }
+
+  blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
+  revealEngineHints = Boolean(setupRevealBlundersEl.checked);
+  revealBlundersCheckbox.checked = revealEngineHints;
+  blindToYourPiecesCheckbox.checked = true;
+  blindToOwnPiecesCheckbox.checked = true;
+  neverBlindLastMovedPiece = true;
+  neverBlindLastMovedCheckbox.checked = true;
 }
 
 function statusReasonText(reason) {
@@ -270,13 +769,15 @@ function statusReasonText(reason) {
       return 'Draw by insufficient material';
     case 'fifty_move_rule':
       return 'Draw by fifty-move rule';
+    case 'forfeit':
+      return 'Forfeit';
     default:
       return 'Draw';
   }
 }
 
 function updateStatus() {
-  const status = game.getGameStatus();
+  const status = getEffectiveGameStatus();
   const humanColor = game.getHumanColor();
   const history = game.getMoveHistory();
 
@@ -288,7 +789,8 @@ function updateStatus() {
 
     const winnerName = colorName(status.result);
     const youWon = status.result === humanColor;
-    statusTextEl.textContent = `${winnerName} wins by ${status.reason}. ${youWon ? 'You win.' : 'You lose.'}`;
+    const reason = statusReasonText(status.reason).toLowerCase();
+    statusTextEl.textContent = `${winnerName} wins by ${reason}. ${youWon ? 'You win.' : 'You lose.'}`;
     return;
   }
 
@@ -302,7 +804,11 @@ function updateStatus() {
 
   if (!isHumanToMove) {
     statusTextEl.textContent =
-      activeMode === GAME_MODE.BLINDFISH ? 'Blindfish is thinking...' : 'Blunderfish is thinking...';
+      activeMode === GAME_MODE.BLINDFISH
+        ? 'Blindfish is thinking...'
+        : activeMode === GAME_MODE.RAMPFISH
+          ? 'Clapbackfish is thinking...'
+          : 'Blunderfish is thinking...';
     return;
   }
 
@@ -324,7 +830,7 @@ function updateStatus() {
 }
 
 function updateBoard() {
-  const status = game.getGameStatus();
+  const status = getEffectiveGameStatus();
   const kingOutcome =
     status.over && status.reason === 'checkmate'
       ? {
@@ -445,6 +951,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  if (typeof document.execCommand === 'function') {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  }
+
+  return false;
+}
+
 function updateCapturesPanel() {
   const position = game.getPosition();
   const humanColor = game.getHumanColor();
@@ -470,7 +998,7 @@ function isHumanTurn() {
 }
 
 function canInteract() {
-  return !thinking && !game.getGameStatus().over && isHumanTurn();
+  return !thinking && !getEffectiveGameStatus().over && isHumanTurn();
 }
 
 function updateInteractionMode() {
@@ -489,7 +1017,61 @@ function syncDesktopColumnHeights() {
   }
 }
 
+function handleGameConclusionTransition() {
+  const status = getEffectiveGameStatus();
+  if (!status.over || gameConcluded) {
+    return;
+  }
+
+  gameConcluded = true;
+  updatePrimaryTopRightButton();
+  openGameResultModal(status);
+}
+
+function forfeitCurrentGame() {
+  if (getEffectiveGameStatus().over) {
+    return;
+  }
+
+  searchToken += 1;
+  thinking = false;
+  pendingPromotion = null;
+  if (promotionDialog.open) {
+    promotionDialog.close();
+  }
+
+  bumpGeneration('forfeit');
+  forcedGameStatus = {
+    over: true,
+    result: oppositeColor(game.getHumanColor()),
+    reason: 'forfeit',
+    check: false
+  };
+  queueEvalSampleForCurrentPosition();
+  processEvalHistoryQueue();
+  refresh();
+}
+
+function returnToMainMenu() {
+  bumpGeneration('main_menu');
+  closeGameResultModal();
+  forcedGameStatus = null;
+  gameConcluded = false;
+  gameStarted = false;
+  setModeSelectionDisabled(false);
+  showModeSelectionScreen();
+  gameAppEl.classList.add('app-hidden');
+  updatePrimaryTopRightButton();
+}
+
 function refresh() {
+  updatePrimaryTopRightButton();
+  handleGameConclusionTransition();
+  updateRampReadonlyDisplay();
+  renderEvalBar();
+  processEvalHistoryQueue();
+  scheduleEvalBarAnalysis();
+
   board.setMoveQueryHandlers({
     canSelectSquare: (_square, piece) => {
       return canInteract() && piece.color === game.getHumanColor();
@@ -565,7 +1147,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   if (!includeHumanPieces && !includeComputerPieces) {
     currentBlindSquares = new Set();
     refresh();
-    return engine.getBestMove(game.getFen(), 1500);
+    return engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
   }
 
   const position = game.getPosition();
@@ -597,7 +1179,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   if (blindnessCount <= 0) {
     currentBlindSquares = new Set();
     refresh();
-    return engine.getBestMove(game.getFen(), 1500);
+    return engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
   }
 
   const legalMoves = game.getAllLegalMoves();
@@ -606,7 +1188,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   return chooseBlindfishMoveWithRetries({
     pieceBlindnessCount: blindnessCount,
     maxRetries: MAX_BLIND_RETRIES,
-    movetimeMs: 1500,
+    movetimeMs: ENGINE_MOVETIME_MS,
     multiPv: candidateCeiling,
     selectBlindSquares: (count) =>
       game.selectBlindSquares(count, Math.random, {
@@ -635,7 +1217,7 @@ async function chooseBlindfishMove(tokenAtStart) {
 }
 
 async function requestEngineMove() {
-  if (game.getGameStatus().over || isHumanTurn()) {
+  if (getEffectiveGameStatus().over || isHumanTurn()) {
     refresh();
     return;
   }
@@ -659,6 +1241,79 @@ async function requestEngineMove() {
       }
       computerMoveKinds.set(historyPlyIndex, 'blind');
       randomMoveHurts.delete(historyPlyIndex);
+    } else if (activeMode === GAME_MODE.RAMPFISH) {
+      computerEngineTurnCount += 1;
+      lastRampTargetCp = computeTargetEvalCp({
+        engineTurnIndex: computerEngineTurnCount,
+        finalMove: rampFinalMove
+      });
+      refresh();
+
+      await engine.setSkillLevel(RAMP_MAX_SKILL_LEVEL);
+      if (isPostRampPhase(computerEngineTurnCount, rampFinalMove)) {
+        selectedMove = await engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
+      } else {
+        const legalMoves = game.getAllLegalMoves();
+        if (legalMoves.length === 0) {
+          refresh();
+          return;
+        }
+
+        const rankedEntries = await engine.getRankedMovesWithScores(game.getFen(), {
+          movetimeMs: ENGINE_MOVETIME_MS,
+          multiPv: legalMoves.length
+        });
+        const legalByKey = new Map(legalMoves.map((move) => [moveKey(move), move]));
+        const orderedEntries = [];
+        const seen = new Set();
+
+        for (const entry of rankedEntries) {
+          const key = moveKey(entry.move);
+          if (!legalByKey.has(key) || seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          orderedEntries.push({
+            move: legalByKey.get(key),
+            rank: entry.rank,
+            score: entry.score
+          });
+        }
+
+        for (const move of legalMoves) {
+          const key = moveKey(move);
+          if (seen.has(key)) {
+            continue;
+          }
+          orderedEntries.push({
+            move,
+            rank: Number.MAX_SAFE_INTEGER,
+            score: null
+          });
+        }
+
+        let bestEntry = null;
+        for (const entry of orderedEntries) {
+          if (!entry.score) {
+            continue;
+          }
+          const scoreForComputer = scoreToColorPerspective(entry.score, game.getTurn(), computerColor);
+          const scoreCpComparable = scoreToComparableCp(scoreForComputer);
+          const distance = Math.abs(scoreCpComparable - lastRampTargetCp);
+
+          if (
+            !bestEntry ||
+            distance < bestEntry.distance ||
+            (distance === bestEntry.distance && entry.rank < bestEntry.rank)
+          ) {
+            bestEntry = { ...entry, distance };
+          }
+        }
+
+        selectedMove = bestEntry ? bestEntry.move : orderedEntries[0]?.move || legalMoves[0];
+      }
+      computerMoveKinds.set(historyPlyIndex, 'ramp');
+      randomMoveHurts.delete(historyPlyIndex);
     } else {
       const useRandomMove = blunderDecisionSmoother.next(blunderChancePercent);
 
@@ -673,9 +1328,9 @@ async function requestEngineMove() {
         }
         const choiceIndex = Math.floor(Math.random() * legalMoves.length);
         selectedMove = legalMoves[choiceIndex];
-        await sleep(1500);
+        await sleep(RANDOM_MOVE_DELAY_MS);
       } else {
-        selectedMove = await engine.getBestMove(game.getFen(), 1500);
+        selectedMove = await engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
       }
 
       computerMoveKinds.set(historyPlyIndex, useRandomMove ? 'random' : 'engine');
@@ -699,6 +1354,7 @@ async function requestEngineMove() {
     const result = game.applyMove(selectedMove);
     if (result.ok) {
       lastMove = { from: selectedMove.from, to: selectedMove.to };
+      queueEvalSampleForCurrentPosition();
     }
   } catch (error) {
     statusTextEl.textContent = `Engine error: ${error.message}`;
@@ -734,11 +1390,13 @@ async function handleHumanMoveAttempt({ from, to }) {
     lastMove = { from, to };
   }
 
+  queueEvalSampleForCurrentPosition();
   refresh();
   await requestEngineMove();
 }
 
 async function startNewGame() {
+  bumpGeneration('start_new_game');
   searchToken += 1;
   thinking = false;
   pendingPromotion = null;
@@ -747,15 +1405,28 @@ async function startNewGame() {
   randomMoveHurts = new Map();
   currentBlindSquares = new Set();
   blunderDecisionSmoother.reset();
+  evalScoreForWhite = { type: 'cp', value: 0 };
+  lastEvaluatedFen = null;
+  closeGameResultModal();
+  postGameModalOpen = false;
+  gameConcluded = false;
+  forcedGameStatus = null;
+  evalHistoryHuman = [];
+  computerEngineTurnCount = 0;
+  lastRampTargetCp = computeTargetEvalCp({
+    engineTurnIndex: 1,
+    finalMove: rampFinalMove
+  });
 
   const humanColor =
     preferredHumanColor === 'random' ? randomColor() : preferredHumanColor;
   game.newGame(humanColor);
+  queueEvalSampleForCurrentPosition();
 
   displayOrientation = humanColor;
 
-  await engine.newGame();
   refresh();
+  await engine.newGame();
 
   if (!isHumanTurn()) {
     await requestEngineMove();
@@ -763,12 +1434,43 @@ async function startNewGame() {
 }
 
 newGameBtn.addEventListener('click', () => {
+  if (gameStarted && !getEffectiveGameStatus().over && !gameConcluded) {
+    forfeitCurrentGame();
+    return;
+  }
   startNewGame();
 });
 
 flipBoardBtn.addEventListener('click', () => {
   displayOrientation = displayOrientation === 'w' ? 'b' : 'w';
   refresh();
+});
+
+exportFenBtn.addEventListener('click', async () => {
+  const fen = game.getFen();
+  try {
+    const copied = await copyTextToClipboard(fen);
+    statusTextEl.textContent = copied ? 'FEN copied to clipboard.' : `FEN: ${fen}`;
+  } catch {
+    statusTextEl.textContent = `FEN: ${fen}`;
+  }
+});
+
+gameResultCloseBtnEl?.addEventListener('click', () => {
+  closeGameResultModal();
+});
+
+gameResultMainMenuBtnEl?.addEventListener('click', () => {
+  returnToMainMenu();
+});
+
+gameResultRematchBtnEl?.addEventListener('click', async () => {
+  closeGameResultModal();
+  await startNewGame();
+});
+
+gameResultDialogEl?.addEventListener('close', () => {
+  postGameModalOpen = false;
 });
 
 boardEl.addEventListener(
@@ -804,16 +1506,33 @@ revealBlundersCheckbox.addEventListener('change', (event) => {
   refresh();
 });
 
+showEvalBarCheckbox.addEventListener('change', (event) => {
+  showEvalBar = Boolean(event.target.checked);
+  if (!showEvalBar) {
+    evalAnalysisToken += 1;
+    evalAnalysisBusy = false;
+  } else {
+    lastEvaluatedFen = null;
+  }
+  refresh();
+});
+
 neverBlindLastMovedCheckbox.addEventListener('change', (event) => {
   neverBlindLastMovedPiece = Boolean(event.target.checked);
 });
 
 async function boot() {
   statusTextEl.textContent =
-    activeMode === GAME_MODE.BLINDFISH ? 'Initializing Blindfish...' : 'Initializing Blunderfish...';
+    activeMode === GAME_MODE.BLINDFISH
+      ? 'Initializing Blindfish...'
+      : activeMode === GAME_MODE.RAMPFISH
+        ? 'Initializing Clapbackfish...'
+        : 'Initializing Blunderfish...';
 
   applyModeSettingsUi();
   revealEngineHints = Boolean(revealBlundersCheckbox.checked);
+  showEvalBar = Boolean(showEvalBarCheckbox.checked);
+  renderEvalBar();
 
   await engine.init();
   await engine.setSkillLevel(20);
@@ -823,6 +1542,7 @@ async function boot() {
 function setModeSelectionDisabled(disabled) {
   modeBlunderfishBtn.disabled = disabled;
   modeBlindfishBtn.disabled = disabled;
+  modeRampfishBtn.disabled = disabled;
   setupStartBtn.disabled = disabled;
   setupBackBtn.disabled = disabled;
 }
@@ -872,6 +1592,10 @@ modeBlindfishBtn.addEventListener('click', () => {
 
 modeBlunderfishBtn.addEventListener('click', () => {
   showSetupScreen(GAME_MODE.BLUNDERFISH);
+});
+
+modeRampfishBtn.addEventListener('click', () => {
+  showSetupScreen(GAME_MODE.RAMPFISH);
 });
 
 window.addEventListener('resize', () => {

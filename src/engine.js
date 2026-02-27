@@ -1,5 +1,13 @@
 const DEFAULT_TIMEOUT_MS = 20000;
 
+export class EngineTaskCanceledError extends Error {
+  constructor(reason = 'canceled') {
+    super(`Engine task canceled: ${reason}`);
+    this.name = 'EngineTaskCanceledError';
+    this.reason = reason;
+  }
+}
+
 function parseUciMoveToken(token) {
   if (!token || token === '(none)' || token.length < 4) {
     return null;
@@ -36,6 +44,19 @@ function parseInfoScoreLine(line) {
   };
 }
 
+function parseInfoMultiPvRank(line) {
+  if (!line || !line.startsWith('info ')) {
+    return null;
+  }
+
+  const match = line.match(/\bmultipv\s+(\d+)\b/);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
+}
+
 export function parseInfoMultiPvLine(line) {
   if (!line || !line.startsWith('info ')) {
     return null;
@@ -55,7 +76,8 @@ export function parseInfoMultiPvLine(line) {
 
   return {
     rank: Number(rankMatch[1]),
-    move
+    move,
+    score: parseInfoScoreLine(line)
   };
 }
 
@@ -80,11 +102,57 @@ export function rankAndDedupeMoves(entries) {
   return result;
 }
 
-export function createEngine() {
-  const workerUrl = `${import.meta.env.BASE_URL}stockfish/stockfish.wasm.js`;
-  const worker = new Worker(workerUrl);
+export function rankAndDedupeMoveEntries(entries) {
+  const sorted = [...entries].sort((a, b) => a.rank - b.rank);
+  const seen = new Set();
+  const result = [];
 
+  for (const entry of sorted) {
+    const key = moveKey(entry.move);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(entry);
+  }
+
+  return result;
+}
+
+function clampSkillLevel(level) {
+  const parsed = Number(level);
+  if (!Number.isFinite(parsed)) {
+    return 20;
+  }
+  return Math.max(0, Math.min(20, Math.round(parsed)));
+}
+
+function normalizeBestMoveSearchOptions(search) {
+  if (typeof search === 'number') {
+    return { movetimeMs: search, depth: null, legacyMovetime: true };
+  }
+
+  if (!search || typeof search !== 'object') {
+    return { movetimeMs: 1500, depth: null, legacyMovetime: false };
+  }
+
+  const movetimeMs =
+    Number.isFinite(Number(search.movetimeMs)) && Number(search.movetimeMs) > 0
+      ? Math.round(Number(search.movetimeMs))
+      : 1500;
+  const depthRaw = Number(search.depth);
+  const depth = Number.isFinite(depthRaw) && depthRaw > 0 ? Math.round(depthRaw) : null;
+
+  return { movetimeMs, depth, legacyMovetime: false };
+}
+
+function createUciWorkerClient({ workerUrl }) {
+  const worker = new Worker(workerUrl);
   let pendingResolvers = [];
+  let queuedTasks = [];
+  let activeTask = null;
+  let terminated = false;
+  let appliedSkillLevel = null;
 
   worker.addEventListener('message', (event) => {
     const line = String(event.data || '');
@@ -105,116 +173,255 @@ export function createEngine() {
   });
 
   function send(command) {
+    if (terminated) {
+      throw new EngineTaskCanceledError('terminated');
+    }
     worker.postMessage(command);
   }
 
   function waitForLine(predicate, timeoutMs = DEFAULT_TIMEOUT_MS, onLine = null) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pendingResolvers = pendingResolvers.filter((entry) => entry !== resolverEntry);
-        reject(new Error('Stockfish response timeout'));
-      }, timeoutMs);
+    if (terminated) {
+      return Promise.reject(new EngineTaskCanceledError('terminated'));
+    }
 
+    return new Promise((resolve, reject) => {
       const resolverEntry = {
         predicate,
         onLine,
+        timeout: null,
         resolve: (line) => {
-          clearTimeout(timeout);
+          clearTimeout(resolverEntry.timeout);
           resolve(line);
+        },
+        reject: (error) => {
+          clearTimeout(resolverEntry.timeout);
+          reject(error);
         }
       };
+
+      resolverEntry.timeout = setTimeout(() => {
+        pendingResolvers = pendingResolvers.filter((entry) => entry !== resolverEntry);
+        reject(new Error('Stockfish response timeout'));
+      }, timeoutMs);
 
       pendingResolvers.push(resolverEntry);
     });
   }
 
-  async function init() {
-    send('uci');
-    await waitForLine((line) => line === 'uciok');
-
-    send('isready');
-    await waitForLine((line) => line === 'readyok');
+  function rejectPendingResolvers(error) {
+    for (const resolver of pendingResolvers) {
+      resolver.reject(error);
+    }
+    pendingResolvers = [];
   }
 
-  async function setSkillLevel(level = 20) {
-    send(`setoption name Skill Level value ${level}`);
-    send('isready');
-    await waitForLine((line) => line === 'readyok');
-  }
-
-  async function newGame() {
-    send('ucinewgame');
-    send('isready');
-    await waitForLine((line) => line === 'readyok');
-  }
-
-  async function getBestMove(fen, movetimeMs = 1500) {
-    send(`position fen ${fen}`);
-    send(`go movetime ${movetimeMs}`);
-
-    const bestMoveLine = await waitForLine((line) => line.startsWith('bestmove '));
-    const move = parseBestMoveLine(bestMoveLine);
-
-    if (!move) {
-      throw new Error(`Unable to parse engine best move: ${bestMoveLine}`);
+  function processTaskQueue() {
+    if (activeTask || queuedTasks.length === 0 || terminated) {
+      return;
     }
 
-    return move;
-  }
+    const task = queuedTasks.shift();
+    activeTask = task;
 
-  async function getRankedMoves(fen, { movetimeMs = 1500, multiPv = 8 } = {}) {
-    const requestedMultiPv = Math.max(1, Math.floor(multiPv));
-    const rankedBySlot = new Map();
+    let operationPromise;
+    try {
+      operationPromise = Promise.resolve(task.operation());
+    } catch (error) {
+      task.reject(error);
+      activeTask = null;
+      processTaskQueue();
+      return;
+    }
 
-    send(`setoption name MultiPV value ${requestedMultiPv}`);
-    send(`position fen ${fen}`);
-    send(`go movetime ${movetimeMs}`);
-
-    const bestMoveLine = await waitForLine(
-      (line) => line.startsWith('bestmove '),
-      DEFAULT_TIMEOUT_MS,
-      (line) => {
-        const parsed = parseInfoMultiPvLine(line);
-        if (parsed) {
-          rankedBySlot.set(parsed.rank, parsed.move);
+    operationPromise
+      .then((value) => {
+        task.resolve(value);
+      })
+      .catch((error) => {
+        task.reject(error);
+      })
+      .finally(() => {
+        if (activeTask === task) {
+          activeTask = null;
         }
-      }
-    );
-
-    const bestMove = parseBestMoveLine(bestMoveLine);
-    if (bestMove && !rankedBySlot.has(1)) {
-      rankedBySlot.set(1, bestMove);
-    }
-
-    const entries = Array.from(rankedBySlot.entries()).map(([rank, move]) => ({ rank, move }));
-    return rankAndDedupeMoves(entries);
+        processTaskQueue();
+      });
   }
 
-  async function analyzePosition(fen, movetimeMs = 1500) {
-    let latestScore = null;
-
-    send(`position fen ${fen}`);
-    send(`go movetime ${movetimeMs}`);
-    await waitForLine(
-      (line) => line.startsWith('bestmove '),
-      DEFAULT_TIMEOUT_MS,
-      (line) => {
-        const score = parseInfoScoreLine(line);
-        if (score) {
-          latestScore = score;
-        }
-      }
-    );
-
-    if (!latestScore) {
-      throw new Error('Unable to parse engine score from analysis');
+  function enqueueTask(operation) {
+    if (terminated) {
+      return Promise.reject(new EngineTaskCanceledError('terminated'));
     }
 
-    return latestScore;
+    return new Promise((resolve, reject) => {
+      queuedTasks.push({ operation, resolve, reject });
+      processTaskQueue();
+    });
+  }
+
+  function flush(reason = 'flushed', { cancelActive = false } = {}) {
+    const error = new EngineTaskCanceledError(reason);
+    for (const task of queuedTasks) {
+      task.reject(error);
+    }
+    queuedTasks = [];
+
+    if (!cancelActive || !activeTask) {
+      return;
+    }
+
+    if (!terminated) {
+      worker.postMessage('stop');
+    }
+    rejectPendingResolvers(error);
+    const canceledTask = activeTask;
+    activeTask = null;
+    canceledTask.reject(error);
+    processTaskQueue();
   }
 
   function terminate() {
+    if (terminated) {
+      return;
+    }
+
+    terminated = true;
+    const error = new EngineTaskCanceledError('terminated');
+    flush('terminated');
+    rejectPendingResolvers(error);
+
+    if (activeTask) {
+      activeTask.reject(error);
+      activeTask = null;
+    }
+
     worker.terminate();
+  }
+
+  async function init() {
+    return enqueueTask(async () => {
+      send('uci');
+      await waitForLine((line) => line === 'uciok');
+
+      send('isready');
+      await waitForLine((line) => line === 'readyok');
+    });
+  }
+
+  async function setSkillLevel(level = 20) {
+    return enqueueTask(async () => {
+      const clampedLevel = clampSkillLevel(level);
+      if (appliedSkillLevel === clampedLevel) {
+        return;
+      }
+
+      send(`setoption name Skill Level value ${clampedLevel}`);
+      send('isready');
+      await waitForLine((line) => line === 'readyok');
+      appliedSkillLevel = clampedLevel;
+    });
+  }
+
+  async function newGame() {
+    return enqueueTask(async () => {
+      send('ucinewgame');
+      send('isready');
+      await waitForLine((line) => line === 'readyok');
+    });
+  }
+
+  async function getBestMove(fen, search = 1500) {
+    return enqueueTask(async () => {
+      const options = normalizeBestMoveSearchOptions(search);
+      send(`position fen ${fen}`);
+      if (options.depth !== null && !options.legacyMovetime) {
+        send(`go depth ${options.depth} movetime ${options.movetimeMs}`);
+      } else {
+        send(`go movetime ${options.movetimeMs}`);
+      }
+
+      const bestMoveLine = await waitForLine((line) => line.startsWith('bestmove '));
+      const move = parseBestMoveLine(bestMoveLine);
+
+      if (!move) {
+        throw new Error(`Unable to parse engine best move: ${bestMoveLine}`);
+      }
+
+      return move;
+    });
+  }
+
+  async function getRankedMovesWithScores(fen, { movetimeMs = 1500, multiPv = 8, depth = null } = {}) {
+    return enqueueTask(async () => {
+      const requestedMultiPv = Math.max(1, Math.floor(multiPv));
+      const requestedDepth =
+        Number.isFinite(Number(depth)) && Number(depth) > 0 ? Math.floor(Number(depth)) : null;
+      const rankedBySlot = new Map();
+
+      send(`setoption name MultiPV value ${requestedMultiPv}`);
+      send(`position fen ${fen}`);
+      if (requestedDepth !== null) {
+        send(`go depth ${requestedDepth} movetime ${movetimeMs}`);
+      } else {
+        send(`go movetime ${movetimeMs}`);
+      }
+
+      const bestMoveLine = await waitForLine(
+        (line) => line.startsWith('bestmove '),
+        DEFAULT_TIMEOUT_MS,
+        (line) => {
+          const parsed = parseInfoMultiPvLine(line);
+          if (parsed) {
+            rankedBySlot.set(parsed.rank, parsed);
+          }
+        }
+      );
+
+      const bestMove = parseBestMoveLine(bestMoveLine);
+      if (bestMove && !rankedBySlot.has(1)) {
+        rankedBySlot.set(1, {
+          rank: 1,
+          move: bestMove,
+          score: null
+        });
+      }
+
+      const entries = Array.from(rankedBySlot.values());
+      return rankAndDedupeMoveEntries(entries);
+    });
+  }
+
+  async function getRankedMoves(fen, options = {}) {
+    const entries = await getRankedMovesWithScores(fen, options);
+    return entries.map((entry) => entry.move);
+  }
+
+  async function analyzePosition(fen, movetimeMs = 1500) {
+    return enqueueTask(async () => {
+      let latestScore = null;
+
+      send(`position fen ${fen}`);
+      send(`go movetime ${movetimeMs}`);
+      await waitForLine(
+        (line) => line.startsWith('bestmove '),
+        DEFAULT_TIMEOUT_MS,
+        (line) => {
+          const score = parseInfoScoreLine(line);
+          if (score) {
+            const multipvRank = parseInfoMultiPvRank(line);
+            if (multipvRank === null || multipvRank === 1) {
+              latestScore = score;
+            }
+          }
+        }
+      );
+
+      if (!latestScore) {
+        throw new Error('Unable to parse engine score from analysis');
+      }
+
+      return latestScore;
+    });
   }
 
   return {
@@ -223,7 +430,51 @@ export function createEngine() {
     newGame,
     getBestMove,
     getRankedMoves,
+    getRankedMovesWithScores,
     analyzePosition,
+    flush,
+    terminate
+  };
+}
+
+export function createEngine() {
+  const workerUrl = `${import.meta.env.BASE_URL}stockfish/stockfish.wasm.js`;
+  const playClient = createUciWorkerClient({ workerUrl });
+  const analysisClient = createUciWorkerClient({ workerUrl });
+
+  async function init() {
+    await Promise.all([playClient.init(), analysisClient.init()]);
+  }
+
+  async function setSkillLevel(level = 20) {
+    await Promise.all([playClient.setSkillLevel(level), analysisClient.setSkillLevel(level)]);
+  }
+
+  async function newGame() {
+    analysisClient.flush('new_game');
+    void analysisClient.newGame().catch(() => {});
+    playClient.flush('new_game', { cancelActive: true });
+    await playClient.newGame();
+  }
+
+  function flushAnalysis(reason = 'flushed') {
+    analysisClient.flush(reason);
+  }
+
+  function terminate() {
+    playClient.terminate();
+    analysisClient.terminate();
+  }
+
+  return {
+    init,
+    setSkillLevel,
+    newGame,
+    getBestMove: (fen, search) => playClient.getBestMove(fen, search),
+    getRankedMoves: (fen, options) => playClient.getRankedMoves(fen, options),
+    getRankedMovesWithScores: (fen, options) => playClient.getRankedMovesWithScores(fen, options),
+    analyzePosition: (fen, movetimeMs) => analysisClient.analyzePosition(fen, movetimeMs),
+    flushAnalysis,
     terminate
   };
 }

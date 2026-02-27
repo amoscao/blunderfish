@@ -24,6 +24,10 @@
             <span class="mode-name">Blindfish</span>
             <span class="mode-description">Max difficulty stockfish but it randomly forgets about pieces</span>
           </button>
+          <button id="mode-rampfish-btn" class="mode-button mode-button-tertiary" type="button">
+            <span class="mode-name">Clapbackfish</span>
+            <span class="mode-description">Makes the comeback of the century</span>
+          </button>
         </div>
         <p id="mode-select-note" class="mode-note" aria-live="polite"></p>
       </div>
@@ -110,6 +114,7 @@
         <div class="controls">
           <button id="new-game-btn" type="button">New Game</button>
           <button id="flip-board-btn" type="button">Flip Board</button>
+          <button id="export-fen-btn" type="button">Export FEN</button>
         </div>
       </header>
       <p class="subtitle">
@@ -122,6 +127,12 @@
 
       <section class="play-area">
         <div class="board-wrap">
+          <section id="eval-bar-wrap" class="eval-bar-wrap" aria-label="Evaluation bar" hidden>
+            <div class="eval-bar" role="img" aria-label="Position evaluation">
+              <div id="eval-bar-white-fill" class="eval-bar-white-fill" style="width: 50%"></div>
+            </div>
+            <span id="eval-bar-label" class="eval-bar-label">0.00</span>
+          </section>
           <div id="board" class="board" aria-label="Chess board"></div>
         </div>
         <aside class="right-column" aria-label="Controls and move list">
@@ -183,6 +194,13 @@
               <input id="reveal-blunders" type="checkbox" checked />
               <span id="reveal-setting-label">Reveal Blunders</span>
             </label>
+            <label class="setting-checkbox">
+              <input id="show-eval-bar" type="checkbox" checked />
+              <span>Show eval bar</span>
+            </label>
+            <div id="ramp-readonly-settings" class="ramp-readonly" hidden>
+              <p class="ramp-readonly-row"><strong>Current engine goal:</strong> <span id="ramp-target-cp-value">White +20.00</span></p>
+            </div>
           </section>
 
           <section class="moves-panel" aria-label="Move list">
@@ -213,6 +231,28 @@
         <h2>Choose promotion</h2>
         <div id="promotion-options" class="promotion-options"></div>
       </form>
+    </dialog>
+
+    <dialog id="game-result-dialog" class="game-result-dialog">
+      <div class="game-result-header">
+        <h2 id="game-result-title">Draw!</h2>
+        <button id="game-result-close-btn" type="button" aria-label="Close game result">X</button>
+      </div>
+      <div class="game-result-graph-wrap">
+        <p id="game-result-graph-y-label" class="game-result-axis-label">Eval (pawns, human perspective)</p>
+        <svg
+          id="game-result-graph"
+          class="game-result-graph"
+          viewBox="0 0 680 280"
+          role="img"
+          aria-label="Eval history graph"
+        ></svg>
+        <p id="game-result-graph-x-label" class="game-result-axis-label">Half-move (ply)</p>
+      </div>
+      <div class="game-result-actions">
+        <button id="game-result-main-menu-btn" type="button">Main Menu</button>
+        <button id="game-result-rematch-btn" type="button">Rematch</button>
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.js"></script>

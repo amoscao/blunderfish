@@ -4,11 +4,13 @@ test('moves list uses vertical scrollbar when many rows are present (desktop)', 
   await page.goto('/');
 
   await page.getByRole('button', { name: 'Blunderfish' }).click();
+  await page.getByLabel('Play as').selectOption('w');
   await page.getByRole('button', { name: 'Start Game' }).click();
 
   await expect(page.locator('#game-app')).toBeVisible();
+  await expect(page.locator('#status-text')).toHaveText('You are White. Your Move.');
 
-  await page.evaluate(() => {
+  const injectedRows = await page.evaluate(() => {
     const tbody = document.querySelector('#moves-body');
     if (!tbody) throw new Error('moves body not found');
 
@@ -18,7 +20,9 @@ test('moves list uses vertical scrollbar when many rows are present (desktop)', 
       row.innerHTML = `<td>${i + 1}.</td><td>e4</td><td>e5</td>`;
       tbody.appendChild(row);
     }
+    return tbody.querySelectorAll('tr').length;
   });
+  expect(injectedRows).toBe(200);
 
   const metrics = await page.locator('.moves-table-wrap').evaluate((el) => ({
     clientHeight: el.clientHeight,

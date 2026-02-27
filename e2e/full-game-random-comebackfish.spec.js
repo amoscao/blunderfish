@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 
+// NOTE: This spec intentionally uses random human moves.
+// It is expected to remain stable because random play is overwhelmingly likely
+// to lose against Stockfish-strength play in this mode.
+
 const EVAL_LABEL_PATTERN = /[+-]\d+\.\d{2}|-?M\d+/;
 
 function shuffled(list) {

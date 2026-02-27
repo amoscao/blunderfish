@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createEngine } from '../src/engine.js';
+import { EngineTaskCanceledError, createEngine } from '../src/engine.js';
 
 class MockWorker {
   static instances = [];
@@ -44,58 +44,85 @@ describe('engine worker integration', () => {
     vi.useRealTimers();
   });
 
-  test('init sends uci then isready and waits for acknowledgements', async () => {
+  function createWithWorkers() {
     const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    expect(MockWorker.instances.length).toBe(2);
+    const playWorker = MockWorker.instances[0];
+    const analysisWorker = MockWorker.instances[1];
+    return { engine, playWorker, analysisWorker };
+  }
+
+  test('init sends uci/isready on both workers and waits for acknowledgements', async () => {
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
 
     const initPromise = engine.init();
-    expect(worker.messages).toEqual(['uci']);
+    expect(playWorker.messages).toEqual(['uci']);
+    expect(analysisWorker.messages).toEqual(['uci']);
 
-    worker.emit('uciok');
+    playWorker.emit('uciok');
+    analysisWorker.emit('uciok');
     await Promise.resolve();
-    expect(worker.messages).toEqual(['uci', 'isready']);
 
-    worker.emit('readyok');
+    expect(playWorker.messages).toEqual(['uci', 'isready']);
+    expect(analysisWorker.messages).toEqual(['uci', 'isready']);
+
+    playWorker.emit('readyok');
+    analysisWorker.emit('readyok');
     await initPromise;
   });
 
-  test('getBestMove sends position/go and parses response', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+  test('getBestMove sends position/go on play worker and parses response', async () => {
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
 
     const movePromise = engine.getBestMove('test-fen', 321);
-    expect(worker.messages).toEqual(['position fen test-fen', 'go movetime 321']);
+    expect(playWorker.messages).toEqual(['position fen test-fen', 'go movetime 321']);
+    expect(analysisWorker.messages).toEqual([]);
 
-    worker.emit('bestmove e2e4 ponder e7e5');
+    playWorker.emit('bestmove e2e4 ponder e7e5');
     await expect(movePromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
   });
 
+  test('analyzePosition runs on analysis worker and is independent from play worker', async () => {
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
+
+    const analysisPromise = engine.analyzePosition('analysis-fen', 350);
+    expect(analysisWorker.messages).toEqual(['position fen analysis-fen', 'go movetime 350']);
+
+    const bestMovePromise = engine.getBestMove('play-fen', 200);
+    expect(playWorker.messages).toEqual(['position fen play-fen', 'go movetime 200']);
+
+    playWorker.emit('bestmove g8f6 ponder e2e4');
+    await expect(bestMovePromise).resolves.toEqual({ from: 'g8', to: 'f6', promotion: undefined });
+
+    analysisWorker.emit('info depth 13 score cp 42 pv e2e4 e7e5');
+    analysisWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(analysisPromise).resolves.toEqual({ type: 'cp', value: 42 });
+  });
+
   test('getBestMove supports depth and movetime options object', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    const { engine, playWorker } = createWithWorkers();
 
     const movePromise = engine.getBestMove('test-fen', { movetimeMs: 250, depth: 9 });
-    expect(worker.messages).toEqual(['position fen test-fen', 'go depth 9 movetime 250']);
+    expect(playWorker.messages).toEqual(['position fen test-fen', 'go depth 9 movetime 250']);
 
-    worker.emit('bestmove e2e4 ponder e7e5');
+    playWorker.emit('bestmove e2e4 ponder e7e5');
     await expect(movePromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
   });
 
   test('getRankedMoves uses multipv lines and fallback bestmove rank-1', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    const { engine, playWorker } = createWithWorkers();
 
     const movesPromise = engine.getRankedMoves('blind-fen', { movetimeMs: 200, multiPv: 4 });
 
-    expect(worker.messages).toEqual([
+    expect(playWorker.messages).toEqual([
       'setoption name MultiPV value 4',
       'position fen blind-fen',
       'go movetime 200'
     ]);
 
-    worker.emit('info depth 15 multipv 2 score cp 10 pv d2d4 d7d5');
-    worker.emit('info depth 15 multipv 3 score cp 8 pv g1f3 g8f6');
-    worker.emit('bestmove e2e4 ponder e7e5');
+    playWorker.emit('info depth 15 multipv 2 score cp 10 pv d2d4 d7d5');
+    playWorker.emit('info depth 15 multipv 3 score cp 8 pv g1f3 g8f6');
+    playWorker.emit('bestmove e2e4 ponder e7e5');
 
     await expect(movesPromise).resolves.toEqual([
       { from: 'e2', to: 'e4', promotion: undefined },
@@ -105,33 +132,31 @@ describe('engine worker integration', () => {
   });
 
   test('getRankedMoves supports optional depth constraint', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    const { engine, playWorker } = createWithWorkers();
 
     const movesPromise = engine.getRankedMoves('deep-fen', { movetimeMs: 200, multiPv: 2, depth: 11 });
 
-    expect(worker.messages).toEqual([
+    expect(playWorker.messages).toEqual([
       'setoption name MultiPV value 2',
       'position fen deep-fen',
       'go depth 11 movetime 200'
     ]);
 
-    worker.emit('info depth 11 multipv 1 score cp 20 pv e2e4 e7e5');
-    worker.emit('bestmove e2e4 ponder e7e5');
+    playWorker.emit('info depth 11 multipv 1 score cp 20 pv e2e4 e7e5');
+    playWorker.emit('bestmove e2e4 ponder e7e5');
     await expect(movesPromise).resolves.toEqual([{ from: 'e2', to: 'e4', promotion: undefined }]);
   });
 
   test('getRankedMovesWithScores returns rank and cp score metadata', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    const { engine, playWorker } = createWithWorkers();
 
     const entriesPromise = engine.getRankedMovesWithScores('scored-fen', {
       movetimeMs: 200,
       multiPv: 2
     });
 
-    worker.emit('info depth 16 multipv 2 score cp -45 pv d2d4 d7d5');
-    worker.emit('bestmove e2e4 ponder e7e5');
+    playWorker.emit('info depth 16 multipv 2 score cp -45 pv d2d4 d7d5');
+    playWorker.emit('bestmove e2e4 ponder e7e5');
 
     await expect(entriesPromise).resolves.toEqual([
       {
@@ -147,22 +172,15 @@ describe('engine worker integration', () => {
     ]);
   });
 
-  test('analyzePosition should use multipv-1 score when MultiPV is enabled', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
-
-    const rankedPromise = engine.getRankedMovesWithScores('seed-fen', { movetimeMs: 200, multiPv: 3 });
-    worker.emit('info depth 14 multipv 1 score cp 30 pv e2e4 e7e5');
-    worker.emit('info depth 14 multipv 2 score cp -460 pv a2a3 a7a6');
-    worker.emit('bestmove e2e4 ponder e7e5');
-    await rankedPromise;
+  test('analyzePosition should use multipv-1 score when MultiPV is enabled on analysis worker', async () => {
+    const { engine, analysisWorker } = createWithWorkers();
 
     const analyzePromise = engine.analyzePosition('target-fen', 200);
-    expect(worker.messages.slice(-2)).toEqual(['position fen target-fen', 'go movetime 200']);
+    expect(analysisWorker.messages).toEqual(['position fen target-fen', 'go movetime 200']);
 
-    worker.emit('info depth 14 multipv 1 score cp 35 pv d2d4 d7d5');
-    worker.emit('info depth 14 multipv 2 score cp -460 pv a2a3 a7a6');
-    worker.emit('bestmove d2d4 ponder d7d5');
+    analysisWorker.emit('info depth 14 multipv 1 score cp 35 pv d2d4 d7d5');
+    analysisWorker.emit('info depth 14 multipv 2 score cp -460 pv a2a3 a7a6');
+    analysisWorker.emit('bestmove d2d4 ponder d7d5');
 
     await expect(analyzePromise).resolves.toEqual({ type: 'cp', value: 35 });
   });
@@ -170,7 +188,7 @@ describe('engine worker integration', () => {
   test('times out when expected engine response does not arrive', async () => {
     vi.useFakeTimers();
 
-    const engine = createEngine();
+    const { engine } = createWithWorkers();
     const bestMovePromise = engine.getBestMove('slow-fen', 100);
     const timeoutExpectation = expect(bestMovePromise).rejects.toThrow('Stockfish response timeout');
 
@@ -178,36 +196,108 @@ describe('engine worker integration', () => {
     await timeoutExpectation;
   });
 
-  test('setSkillLevel clamps values to valid range', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+  test('concurrent bestmove requests on play worker are serialized', async () => {
+    const { engine, playWorker } = createWithWorkers();
+
+    const firstPromise = engine.getBestMove('fen-one', 200);
+    const secondPromise = engine.getBestMove('fen-two', 200);
+
+    expect(playWorker.messages).toEqual(['position fen fen-one', 'go movetime 200']);
+
+    let secondSettled = false;
+    secondPromise.finally(() => {
+      secondSettled = true;
+    });
+
+    playWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(firstPromise).resolves.toEqual({ from: 'e2', to: 'e4', promotion: undefined });
+
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
+    expect(playWorker.messages).toEqual([
+      'position fen fen-one',
+      'go movetime 200',
+      'position fen fen-two',
+      'go movetime 200'
+    ]);
+
+    playWorker.emit('bestmove d2d4 ponder d7d5');
+    await expect(secondPromise).resolves.toEqual({ from: 'd2', to: 'd4', promotion: undefined });
+  });
+
+  test('flushAnalysis rejects queued analysis tasks with cancellation error', async () => {
+    const { engine, analysisWorker } = createWithWorkers();
+
+    const first = engine.analyzePosition('fen-one', 200);
+    const second = engine.analyzePosition('fen-two', 200);
+
+    expect(analysisWorker.messages).toEqual(['position fen fen-one', 'go movetime 200']);
+    engine.flushAnalysis('generation_changed');
+
+    await expect(second).rejects.toEqual(expect.objectContaining({
+      name: 'EngineTaskCanceledError',
+      reason: 'generation_changed'
+    }));
+
+    analysisWorker.emit('info depth 10 score cp 12 pv e2e4 e7e5');
+    analysisWorker.emit('bestmove e2e4 ponder e7e5');
+    await expect(first).resolves.toEqual({ type: 'cp', value: 12 });
+  });
+
+  test('terminate rejects queued and in-flight tasks and terminates both workers', async () => {
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
+
+    const inFlight = engine.analyzePosition('fen-one', 200);
+    const queued = engine.analyzePosition('fen-two', 200);
+
+    engine.terminate();
+
+    await expect(inFlight).rejects.toBeInstanceOf(EngineTaskCanceledError);
+    await expect(queued).rejects.toBeInstanceOf(EngineTaskCanceledError);
+    expect(playWorker.terminated).toBe(true);
+    expect(analysisWorker.terminated).toBe(true);
+  });
+
+  test('setSkillLevel clamps values to valid range on both workers', async () => {
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
 
     const lowPromise = engine.setSkillLevel(-9);
-    expect(worker.messages).toEqual(['setoption name Skill Level value 0', 'isready']);
-    worker.emit('readyok');
+    expect(playWorker.messages).toEqual(['setoption name Skill Level value 0', 'isready']);
+    expect(analysisWorker.messages).toEqual(['setoption name Skill Level value 0', 'isready']);
+    playWorker.emit('readyok');
+    analysisWorker.emit('readyok');
     await lowPromise;
 
     const highPromise = engine.setSkillLevel(99);
-    expect(worker.messages).toEqual([
+    expect(playWorker.messages).toEqual([
       'setoption name Skill Level value 0',
       'isready',
       'setoption name Skill Level value 20',
       'isready'
     ]);
-    worker.emit('readyok');
+    expect(analysisWorker.messages).toEqual([
+      'setoption name Skill Level value 0',
+      'isready',
+      'setoption name Skill Level value 20',
+      'isready'
+    ]);
+    playWorker.emit('readyok');
+    analysisWorker.emit('readyok');
     await highPromise;
   });
 
   test('setSkillLevel skips duplicate values', async () => {
-    const engine = createEngine();
-    const worker = MockWorker.instances[0];
+    const { engine, playWorker, analysisWorker } = createWithWorkers();
 
     const firstPromise = engine.setSkillLevel(10);
-    expect(worker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
-    worker.emit('readyok');
+    expect(playWorker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
+    expect(analysisWorker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
+    playWorker.emit('readyok');
+    analysisWorker.emit('readyok');
     await firstPromise;
 
     await engine.setSkillLevel(10);
-    expect(worker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
+    expect(playWorker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
+    expect(analysisWorker.messages).toEqual(['setoption name Skill Level value 10', 'isready']);
   });
 });

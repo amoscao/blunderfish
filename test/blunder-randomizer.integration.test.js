@@ -16,6 +16,7 @@ const engineMock = vi.hoisted(() => ({
   getBestMove: vi.fn().mockResolvedValue({ from: 'a7', to: 'a6' }),
   analyzePosition: vi.fn().mockResolvedValue({ type: 'cp', value: 0 }),
   getRankedMoves: vi.fn().mockResolvedValue([]),
+  flushAnalysis: vi.fn(),
   terminate: vi.fn()
 }));
 

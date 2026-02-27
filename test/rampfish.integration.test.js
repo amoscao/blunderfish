@@ -16,6 +16,7 @@ const engineMock = vi.hoisted(() => ({
       { rank: 1, move: { from: 'a7', to: 'a6' }, score: { type: 'cp', value: -1500 } },
       { rank: 2, move: { from: 'a7', to: 'a5' }, score: { type: 'cp', value: 200 } }
     ]),
+  flushAnalysis: vi.fn(),
   terminate: vi.fn()
 }));
 
@@ -203,5 +204,38 @@ describe('rampfish integration', () => {
     );
     expect(gameApplyMoveMock).toHaveBeenCalledWith({ from: 'a7', to: 'a5' });
     expect(engineMock.getBestMove).not.toHaveBeenCalled();
+  });
+
+  test('starting clapbackfish should not reset blunderfish setup slider value', async () => {
+    await import('../src/main.js');
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    const blunderSlider = document.querySelector('#setup-blunder-slider');
+    blunderSlider.value = '37';
+    blunderSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    document.querySelector('#new-game-btn').click();
+    await flushUi();
+    await flushUi();
+    document.querySelector('#game-result-main-menu-btn').click();
+    await flushUi();
+
+    document.querySelector('#mode-rampfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    document.querySelector('#new-game-btn').click();
+    await flushUi();
+    await flushUi();
+
+    document.querySelector('#game-result-main-menu-btn').click();
+    await flushUi();
+
+    document.querySelector('#mode-blunderfish-btn').click();
+    expect(document.querySelector('#setup-blunder-slider').value).toBe('37');
   });
 });

@@ -12,6 +12,7 @@ const engineMock = vi.hoisted(() => ({
   analyzePosition: vi.fn().mockResolvedValue({ type: 'cp', value: 80 }),
   getRankedMoves: vi.fn().mockResolvedValue([]),
   getRankedMovesWithScores: vi.fn().mockResolvedValue([]),
+  flushAnalysis: vi.fn(),
   terminate: vi.fn()
 }));
 
@@ -178,6 +179,24 @@ describe('game result modal integration', () => {
 
     expect(document.querySelector('#mode-select-screen').hidden).toBe(false);
     expect(document.querySelector('#game-app').classList.contains('app-hidden')).toBe(true);
+  });
+
+  test('lifecycle transitions flush analysis generation state', async () => {
+    await import('../src/main.js');
+    document.querySelector('#mode-blunderfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(engineMock.flushAnalysis).toHaveBeenCalledWith('start_new_game');
+
+    document.querySelector('#new-game-btn').click();
+    await flushUi();
+    expect(engineMock.flushAnalysis).toHaveBeenCalledWith('forfeit');
+
+    document.querySelector('#game-result-main-menu-btn').click();
+    await flushUi();
+    expect(engineMock.flushAnalysis).toHaveBeenCalledWith('main_menu');
   });
 
   test('target eval line and legend appear only for clapbackfish', async () => {

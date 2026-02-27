@@ -137,6 +137,7 @@ let evalHistoryHuman = [];
 let evalHistoryQueue = [];
 let evalHistoryBusy = false;
 let evalHistoryBusyToken = 0;
+let gameGeneration = 0;
 const blunderDecisionSmoother = createBlunderDecisionSmoother();
 
 const PIECE_ORDER = ['p', 'b', 'n', 'r', 'q'];
@@ -390,19 +391,39 @@ function closeGameResultModal() {
   postGameModalOpen = false;
 }
 
+function bumpGeneration(reason = 'generation_changed') {
+  gameGeneration += 1;
+  if (typeof engine.flushAnalysis === 'function') {
+    engine.flushAnalysis(reason);
+  }
+  evalAnalysisToken += 1;
+  evalAnalysisBusy = false;
+  evalHistoryBusy = false;
+  evalHistoryBusyToken += 1;
+  evalHistoryQueue = [];
+  lastEvaluatedFen = null;
+}
+
 function queueEvalSampleForCurrentPosition() {
   const fen = game.getFen();
   const ply = game.getMoveHistory().length;
+  const generation = gameGeneration;
   const latestCommitted = evalHistoryHuman[evalHistoryHuman.length - 1];
   const latestQueued = evalHistoryQueue[evalHistoryQueue.length - 1];
   if (
-    (latestCommitted && latestCommitted.ply === ply && latestCommitted.fen === fen) ||
-    (latestQueued && latestQueued.ply === ply && latestQueued.fen === fen)
+    (latestCommitted &&
+      latestCommitted.ply === ply &&
+      latestCommitted.fen === fen &&
+      latestCommitted.generation === generation) ||
+    (latestQueued &&
+      latestQueued.ply === ply &&
+      latestQueued.fen === fen &&
+      latestQueued.generation === generation)
   ) {
     return;
   }
 
-  evalHistoryQueue.push({ ply, fen });
+  evalHistoryQueue.push({ ply, fen, generation });
 }
 
 function processEvalHistoryQueue() {
@@ -420,6 +441,10 @@ function processEvalHistoryQueue() {
   if (!next) {
     return;
   }
+  if (next.generation !== gameGeneration) {
+    processEvalHistoryQueue();
+    return;
+  }
 
   const token = ++evalHistoryBusyToken;
   evalHistoryBusy = true;
@@ -428,12 +453,19 @@ function processEvalHistoryQueue() {
   engine
     .analyzePosition(next.fen, 180)
     .then((rawScore) => {
-      if (token !== evalHistoryBusyToken) {
+      if (token !== evalHistoryBusyToken || next.generation !== gameGeneration) {
         return;
       }
       const scoreForHuman = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), humanColor);
-      const nextSample = { ply: next.ply, cp: sanitizeCpForGraph(scoreForHuman), fen: next.fen };
-      const existingIndex = evalHistoryHuman.findIndex((sample) => sample.ply === next.ply);
+      const nextSample = {
+        ply: next.ply,
+        cp: sanitizeCpForGraph(scoreForHuman),
+        fen: next.fen,
+        generation: next.generation
+      };
+      const existingIndex = evalHistoryHuman.findIndex(
+        (sample) => sample.ply === next.ply && sample.generation === next.generation
+      );
       if (existingIndex >= 0) {
         evalHistoryHuman[existingIndex] = nextSample;
       } else {
@@ -443,7 +475,7 @@ function processEvalHistoryQueue() {
       if (postGameModalOpen) {
         renderGameResultGraph(evalHistoryHuman);
       }
-      if (showEvalBar && next.fen === game.getFen()) {
+      if (showEvalBar && next.fen === game.getFen() && next.generation === gameGeneration) {
         evalScoreForWhite = scoreToColorPerspective(rawScore, parseFenTurn(next.fen), 'w');
         lastEvaluatedFen = next.fen;
         renderEvalBar();
@@ -488,13 +520,14 @@ function scheduleEvalBarAnalysis() {
     return;
   }
 
+  const generationSnapshot = gameGeneration;
   const analysisToken = ++evalAnalysisToken;
   evalAnalysisBusy = true;
 
   engine
     .analyzePosition(fen, 350)
     .then((rawScore) => {
-      if (analysisToken !== evalAnalysisToken) {
+      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
         return;
       }
       evalScoreForWhite = scoreToColorPerspective(rawScore, game.getTurn(), 'w');
@@ -503,10 +536,11 @@ function scheduleEvalBarAnalysis() {
     })
     .catch(() => {})
     .finally(() => {
-      if (analysisToken !== evalAnalysisToken) {
+      if (analysisToken !== evalAnalysisToken || generationSnapshot !== gameGeneration) {
         return;
       }
       evalAnalysisBusy = false;
+      processEvalHistoryQueue();
       if (showEvalBar && !thinking && isHumanTurn() && game.getFen() !== lastEvaluatedFen) {
         scheduleEvalBarAnalysis();
       }
@@ -677,14 +711,7 @@ function applySetupSelections() {
     neverBlindLastMovedPiece = Boolean(setupNeverBlindLastMovedEl.checked);
     neverBlindLastMovedCheckbox.checked = neverBlindLastMovedPiece;
     revealBlundersCheckbox.checked = revealEngineHints;
-  } else {
-    blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
-    revealEngineHints = Boolean(setupRevealBlundersEl.checked);
-    revealBlundersCheckbox.checked = revealEngineHints;
-    blindToYourPiecesCheckbox.checked = true;
-    blindToOwnPiecesCheckbox.checked = true;
-    neverBlindLastMovedPiece = true;
-    neverBlindLastMovedCheckbox.checked = true;
+    return;
   }
 
   if (activeMode === GAME_MODE.RAMPFISH) {
@@ -699,7 +726,16 @@ function applySetupSelections() {
       engineTurnIndex: 1,
       finalMove: rampFinalMove
     });
+    return;
   }
+
+  blunderChancePercent = clampSettingValue(Number(setupBlunderSliderEl.value));
+  revealEngineHints = Boolean(setupRevealBlundersEl.checked);
+  revealBlundersCheckbox.checked = revealEngineHints;
+  blindToYourPiecesCheckbox.checked = true;
+  blindToOwnPiecesCheckbox.checked = true;
+  neverBlindLastMovedPiece = true;
+  neverBlindLastMovedCheckbox.checked = true;
 }
 
 function statusReasonText(reason) {
@@ -987,6 +1023,7 @@ function forfeitCurrentGame() {
     promotionDialog.close();
   }
 
+  bumpGeneration('forfeit');
   forcedGameStatus = {
     over: true,
     result: oppositeColor(game.getHumanColor()),
@@ -999,6 +1036,7 @@ function forfeitCurrentGame() {
 }
 
 function returnToMainMenu() {
+  bumpGeneration('main_menu');
   closeGameResultModal();
   forcedGameStatus = null;
   gameConcluded = false;
@@ -1341,6 +1379,7 @@ async function handleHumanMoveAttempt({ from, to }) {
 }
 
 async function startNewGame() {
+  bumpGeneration('start_new_game');
   searchToken += 1;
   thinking = false;
   pendingPromotion = null;
@@ -1349,8 +1388,6 @@ async function startNewGame() {
   randomMoveHurts = new Map();
   currentBlindSquares = new Set();
   blunderDecisionSmoother.reset();
-  evalAnalysisToken += 1;
-  evalAnalysisBusy = false;
   evalScoreForWhite = { type: 'cp', value: 0 };
   lastEvaluatedFen = null;
   closeGameResultModal();
@@ -1358,9 +1395,6 @@ async function startNewGame() {
   gameConcluded = false;
   forcedGameStatus = null;
   evalHistoryHuman = [];
-  evalHistoryQueue = [];
-  evalHistoryBusy = false;
-  evalHistoryBusyToken += 1;
   computerEngineTurnCount = 0;
   lastRampTargetCp = computeTargetEvalCp({
     engineTurnIndex: 1,
@@ -1374,8 +1408,8 @@ async function startNewGame() {
 
   displayOrientation = humanColor;
 
-  await engine.newGame();
   refresh();
+  await engine.newGame();
 
   if (!isHumanTurn()) {
     await requestEngineMove();

@@ -7,6 +7,7 @@ import {
   clampFinalMove,
   computeTargetEvalCp,
   computeRampProgress,
+  isPostRampPhase,
   interpolateRampProfile
 } from '../src/rampfish.js';
 
@@ -82,5 +83,12 @@ describe('rampfish helpers', () => {
     expect(computeTargetEvalCp({ engineTurnIndex: 1, finalMove: 40 })).toBe(RAMP_TARGET_CP_MIN);
     expect(computeTargetEvalCp({ engineTurnIndex: 40, finalMove: 40 })).toBe(RAMP_TARGET_CP_MAX);
     expect(computeTargetEvalCp({ engineTurnIndex: 20.5, finalMove: 40 })).toBe(0);
+  });
+
+  test('post-ramp phase starts strictly after final move', () => {
+    expect(isPostRampPhase(40, 40)).toBe(false);
+    expect(isPostRampPhase(41, 40)).toBe(true);
+    expect(isPostRampPhase(2, 1)).toBe(true);
+    expect(isPostRampPhase(1, 1)).toBe(false);
   });
 });

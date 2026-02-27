@@ -14,8 +14,8 @@ import {
   RAMP_DEFAULT_FINAL_MOVE,
   RAMP_TARGET_CP_MAX,
   RAMP_TARGET_CP_MIN,
-  clampFinalMove,
-  computeTargetEvalCp
+  computeTargetEvalCp,
+  isPostRampPhase
 } from './rampfish.js';
 
 const GAME_MODE = {
@@ -279,20 +279,51 @@ function renderGameResultGraph(history) {
   let targetLineMarkup = '';
   let targetLegendMarkup = '';
   if (shouldShowTargetLine) {
-    const startEngineCp = RAMP_TARGET_CP_MIN;
-    const endEngineCp = RAMP_TARGET_CP_MAX;
-    const startHumanCp = Math.max(yRange.minCp, Math.min(yRange.maxCp, -startEngineCp));
-    const endHumanCp = Math.max(yRange.minCp, Math.min(yRange.maxCp, -endEngineCp));
-    const y1 = mapPlotY(startHumanCp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
-    const y2 = mapPlotY(endHumanCp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
-    const x1 = margin.left;
-    const x2 = margin.left + plotWidth;
+    const engineColor = oppositeColor(game.getHumanColor());
+    const engineMovePlyForTurn = (turn) => (engineColor === 'w' ? 2 * turn - 1 : 2 * turn);
+    const clampToRange = (cp) => Math.max(yRange.minCp, Math.min(yRange.maxCp, cp));
+    const targetSamples = [];
+
+    const startTargetHumanCp = -computeTargetEvalCp({
+      engineTurnIndex: 1,
+      finalMove: rampFinalMove
+    });
+    targetSamples.push({ ply: 0, cp: clampToRange(startTargetHumanCp) });
+
+    for (let turn = 1; turn <= rampFinalMove; turn += 1) {
+      const ply = engineMovePlyForTurn(turn);
+      if (ply > maxPly) {
+        break;
+      }
+      targetSamples.push({
+        ply,
+        cp: clampToRange(-computeTargetEvalCp({ engineTurnIndex: turn, finalMove: rampFinalMove }))
+      });
+    }
+
+    const lastTarget = targetSamples[targetSamples.length - 1];
+    if (lastTarget.ply < maxPly) {
+      const postRampHumanCp = clampToRange(
+        -computeTargetEvalCp({
+          engineTurnIndex: rampFinalMove + 1,
+          finalMove: rampFinalMove
+        })
+      );
+      targetSamples.push({ ply: maxPly, cp: postRampHumanCp });
+    }
+
+    const targetPoints = targetSamples
+      .map((sample) => {
+        const x = mapPlotX(sample.ply, maxPly, plotWidth) + margin.left;
+        const y = mapPlotY(sample.cp, yRange.minCp, yRange.maxCp, plotHeight) + margin.top;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(' ');
+
     const legendX = margin.left + plotWidth - 130;
     const legendY = margin.top + 14;
 
-    targetLineMarkup = `<line id="game-result-target-line" x1="${x1.toFixed(2)}" y1="${y1.toFixed(
-      2
-    )}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="#e05252" stroke-width="2"></line>`;
+    targetLineMarkup = `<polyline id="game-result-target-line" fill="none" stroke="#e05252" stroke-width="2" points="${targetPoints}"></polyline>`;
     targetLegendMarkup = `<g id="game-result-target-legend">
   <line x1="${legendX.toFixed(2)}" y1="${legendY.toFixed(2)}" x2="${(legendX + 22).toFixed(
       2
@@ -1156,12 +1187,6 @@ async function requestEngineMove() {
       computerMoveKinds.set(historyPlyIndex, 'blind');
       randomMoveHurts.delete(historyPlyIndex);
     } else if (activeMode === GAME_MODE.RAMPFISH) {
-      const legalMoves = game.getAllLegalMoves();
-      if (legalMoves.length === 0) {
-        refresh();
-        return;
-      }
-
       computerEngineTurnCount += 1;
       lastRampTargetCp = computeTargetEvalCp({
         engineTurnIndex: computerEngineTurnCount,
@@ -1170,58 +1195,68 @@ async function requestEngineMove() {
       refresh();
 
       await engine.setSkillLevel(RAMP_MAX_SKILL_LEVEL);
-      const rankedEntries = await engine.getRankedMovesWithScores(game.getFen(), {
-        movetimeMs: RAMP_MAX_MOVETIME_MS,
-        multiPv: legalMoves.length
-      });
-      const legalByKey = new Map(legalMoves.map((move) => [moveKey(move), move]));
-      const orderedEntries = [];
-      const seen = new Set();
-
-      for (const entry of rankedEntries) {
-        const key = moveKey(entry.move);
-        if (!legalByKey.has(key) || seen.has(key)) {
-          continue;
+      if (isPostRampPhase(computerEngineTurnCount, rampFinalMove)) {
+        selectedMove = await engine.getBestMove(game.getFen(), RAMP_MAX_MOVETIME_MS);
+      } else {
+        const legalMoves = game.getAllLegalMoves();
+        if (legalMoves.length === 0) {
+          refresh();
+          return;
         }
-        seen.add(key);
-        orderedEntries.push({
-          move: legalByKey.get(key),
-          rank: entry.rank,
-          score: entry.score
+
+        const rankedEntries = await engine.getRankedMovesWithScores(game.getFen(), {
+          movetimeMs: RAMP_MAX_MOVETIME_MS,
+          multiPv: legalMoves.length
         });
-      }
+        const legalByKey = new Map(legalMoves.map((move) => [moveKey(move), move]));
+        const orderedEntries = [];
+        const seen = new Set();
 
-      for (const move of legalMoves) {
-        const key = moveKey(move);
-        if (seen.has(key)) {
-          continue;
+        for (const entry of rankedEntries) {
+          const key = moveKey(entry.move);
+          if (!legalByKey.has(key) || seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          orderedEntries.push({
+            move: legalByKey.get(key),
+            rank: entry.rank,
+            score: entry.score
+          });
         }
-        orderedEntries.push({
-          move,
-          rank: Number.MAX_SAFE_INTEGER,
-          score: null
-        });
-      }
 
-      let bestEntry = null;
-      for (const entry of orderedEntries) {
-        if (!entry.score) {
-          continue;
+        for (const move of legalMoves) {
+          const key = moveKey(move);
+          if (seen.has(key)) {
+            continue;
+          }
+          orderedEntries.push({
+            move,
+            rank: Number.MAX_SAFE_INTEGER,
+            score: null
+          });
         }
-        const scoreForComputer = scoreToColorPerspective(entry.score, game.getTurn(), computerColor);
-        const scoreCpComparable = scoreToComparableCp(scoreForComputer);
-        const distance = Math.abs(scoreCpComparable - lastRampTargetCp);
 
-        if (
-          !bestEntry ||
-          distance < bestEntry.distance ||
-          (distance === bestEntry.distance && entry.rank < bestEntry.rank)
-        ) {
-          bestEntry = { ...entry, distance };
+        let bestEntry = null;
+        for (const entry of orderedEntries) {
+          if (!entry.score) {
+            continue;
+          }
+          const scoreForComputer = scoreToColorPerspective(entry.score, game.getTurn(), computerColor);
+          const scoreCpComparable = scoreToComparableCp(scoreForComputer);
+          const distance = Math.abs(scoreCpComparable - lastRampTargetCp);
+
+          if (
+            !bestEntry ||
+            distance < bestEntry.distance ||
+            (distance === bestEntry.distance && entry.rank < bestEntry.rank)
+          ) {
+            bestEntry = { ...entry, distance };
+          }
         }
-      }
 
-      selectedMove = bestEntry ? bestEntry.move : orderedEntries[0]?.move || legalMoves[0];
+        selectedMove = bestEntry ? bestEntry.move : orderedEntries[0]?.move || legalMoves[0];
+      }
       computerMoveKinds.set(historyPlyIndex, 'ramp');
       randomMoveHurts.delete(historyPlyIndex);
     } else {

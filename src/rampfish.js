@@ -58,3 +58,11 @@ export function computeTargetEvalCp({ engineTurnIndex, finalMove }) {
   const progress = computeRampProgress(engineTurnIndex, finalMove);
   return lerpRounded(RAMP_TARGET_CP_MIN, RAMP_TARGET_CP_MAX, progress);
 }
+
+export function isPostRampPhase(engineTurnIndex, finalMove) {
+  const turn = Number(engineTurnIndex);
+  if (!Number.isFinite(turn)) {
+    return false;
+  }
+  return turn > clampFinalMove(finalMove);
+}

@@ -30,7 +30,7 @@ const BLINDNESS_MAX = 20;
 const BLUNDER_MAX = 100;
 const MAX_BLIND_RETRIES = 3;
 const RAMP_MAX_SKILL_LEVEL = 20;
-const RAMP_MAX_MOVETIME_MS = 1500;
+const ENGINE_MOVETIME_DEFAULT_MS = 1500;
 
 const statusTextEl = document.querySelector('#status-text');
 const boardEl = document.querySelector('#board');
@@ -149,6 +149,23 @@ const board = createBoard({
   container: boardEl,
   onHumanMoveAttempt: handleHumanMoveAttempt
 });
+
+function readConfiguredEngineMovetimeMs() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('engineMovetimeMs');
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return ENGINE_MOVETIME_DEFAULT_MS;
+    }
+    return Math.max(10, Math.min(5000, Math.round(parsed)));
+  } catch {
+    return ENGINE_MOVETIME_DEFAULT_MS;
+  }
+}
+
+const ENGINE_MOVETIME_MS = readConfiguredEngineMovetimeMs();
+const RANDOM_MOVE_DELAY_MS = ENGINE_MOVETIME_MS;
 
 function randomColor() {
   return Math.random() < 0.5 ? 'w' : 'b';
@@ -1130,7 +1147,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   if (!includeHumanPieces && !includeComputerPieces) {
     currentBlindSquares = new Set();
     refresh();
-    return engine.getBestMove(game.getFen(), 1500);
+    return engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
   }
 
   const position = game.getPosition();
@@ -1162,7 +1179,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   if (blindnessCount <= 0) {
     currentBlindSquares = new Set();
     refresh();
-    return engine.getBestMove(game.getFen(), 1500);
+    return engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
   }
 
   const legalMoves = game.getAllLegalMoves();
@@ -1171,7 +1188,7 @@ async function chooseBlindfishMove(tokenAtStart) {
   return chooseBlindfishMoveWithRetries({
     pieceBlindnessCount: blindnessCount,
     maxRetries: MAX_BLIND_RETRIES,
-    movetimeMs: 1500,
+    movetimeMs: ENGINE_MOVETIME_MS,
     multiPv: candidateCeiling,
     selectBlindSquares: (count) =>
       game.selectBlindSquares(count, Math.random, {
@@ -1234,7 +1251,7 @@ async function requestEngineMove() {
 
       await engine.setSkillLevel(RAMP_MAX_SKILL_LEVEL);
       if (isPostRampPhase(computerEngineTurnCount, rampFinalMove)) {
-        selectedMove = await engine.getBestMove(game.getFen(), RAMP_MAX_MOVETIME_MS);
+        selectedMove = await engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
       } else {
         const legalMoves = game.getAllLegalMoves();
         if (legalMoves.length === 0) {
@@ -1243,7 +1260,7 @@ async function requestEngineMove() {
         }
 
         const rankedEntries = await engine.getRankedMovesWithScores(game.getFen(), {
-          movetimeMs: RAMP_MAX_MOVETIME_MS,
+          movetimeMs: ENGINE_MOVETIME_MS,
           multiPv: legalMoves.length
         });
         const legalByKey = new Map(legalMoves.map((move) => [moveKey(move), move]));
@@ -1311,9 +1328,9 @@ async function requestEngineMove() {
         }
         const choiceIndex = Math.floor(Math.random() * legalMoves.length);
         selectedMove = legalMoves[choiceIndex];
-        await sleep(1500);
+        await sleep(RANDOM_MOVE_DELAY_MS);
       } else {
-        selectedMove = await engine.getBestMove(game.getFen(), 1500);
+        selectedMove = await engine.getBestMove(game.getFen(), ENGINE_MOVETIME_MS);
       }
 
       computerMoveKinds.set(historyPlyIndex, useRandomMove ? 'random' : 'engine');

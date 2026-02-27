@@ -65,7 +65,7 @@ async function tryPlayRandomWhiteMove(page) {
 test('plays a full random white game at 10% blunder to a losing end-game modal', async ({ page }) => {
   test.setTimeout(120000);
 
-  await page.goto('/');
+  await page.goto('/?engineMovetimeMs=50');
   await page.getByRole('button', { name: 'Blunderfish' }).click();
   await page.getByLabel('Play as').selectOption('w');
   await page.locator('#setup-blunder-slider').evaluate((el) => {

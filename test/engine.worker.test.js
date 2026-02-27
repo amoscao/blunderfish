@@ -225,6 +225,32 @@ describe('engine worker integration', () => {
     await expect(secondPromise).resolves.toEqual({ from: 'd2', to: 'd4', promotion: undefined });
   });
 
+  test('newGame cancels an in-flight play search and starts immediately', async () => {
+    const { engine, playWorker } = createWithWorkers();
+
+    const inFlightMove = engine.getBestMove('busy-fen', 200);
+    expect(playWorker.messages).toEqual(['position fen busy-fen', 'go movetime 200']);
+
+    const newGamePromise = engine.newGame();
+    await Promise.resolve();
+
+    expect(playWorker.messages).toEqual([
+      'position fen busy-fen',
+      'go movetime 200',
+      'stop',
+      'ucinewgame',
+      'isready'
+    ]);
+
+    await expect(inFlightMove).rejects.toEqual(expect.objectContaining({
+      name: 'EngineTaskCanceledError',
+      reason: 'new_game'
+    }));
+
+    playWorker.emit('readyok');
+    await expect(newGamePromise).resolves.toBeUndefined();
+  });
+
   test('flushAnalysis rejects queued analysis tasks with cancellation error', async () => {
     const { engine, analysisWorker } = createWithWorkers();
 

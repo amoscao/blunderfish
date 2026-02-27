@@ -259,12 +259,25 @@ function createUciWorkerClient({ workerUrl }) {
     });
   }
 
-  function flush(reason = 'flushed') {
+  function flush(reason = 'flushed', { cancelActive = false } = {}) {
     const error = new EngineTaskCanceledError(reason);
     for (const task of queuedTasks) {
       task.reject(error);
     }
     queuedTasks = [];
+
+    if (!cancelActive || !activeTask) {
+      return;
+    }
+
+    if (!terminated) {
+      worker.postMessage('stop');
+    }
+    rejectPendingResolvers(error);
+    const canceledTask = activeTask;
+    activeTask = null;
+    canceledTask.reject(error);
+    processTaskQueue();
   }
 
   function terminate() {
@@ -440,6 +453,7 @@ export function createEngine() {
   async function newGame() {
     analysisClient.flush('new_game');
     void analysisClient.newGame().catch(() => {});
+    playClient.flush('new_game', { cancelActive: true });
     await playClient.newGame();
   }
 

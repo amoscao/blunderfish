@@ -1,3 +1,5 @@
+import { MaiaRequestExhaustedError, createMaiaOpponentClient } from './maia-opponent.js';
+
 const DEFAULT_TIMEOUT_MS = 20000;
 
 export class EngineTaskCanceledError extends Error {
@@ -83,6 +85,36 @@ export function parseInfoMultiPvLine(line) {
 
 function moveKey(move) {
   return `${move.from}${move.to}${move.promotion || ''}`;
+}
+
+function moveToUci(move) {
+  if (!move || typeof move.from !== 'string' || typeof move.to !== 'string') {
+    return null;
+  }
+  if (move.from.length !== 2 || move.to.length !== 2) {
+    return null;
+  }
+  const promotion = typeof move.promotion === 'string' ? move.promotion : '';
+  return `${move.from}${move.to}${promotion}`;
+}
+
+function normalizeSearchMoves(searchMoves) {
+  if (!Array.isArray(searchMoves)) {
+    return [];
+  }
+
+  const normalized = [];
+  const seen = new Set();
+  for (const move of searchMoves) {
+    const uci = moveToUci(move);
+    if (!uci || seen.has(uci)) {
+      continue;
+    }
+    seen.add(uci);
+    normalized.push(uci);
+  }
+
+  return normalized;
 }
 
 export function rankAndDedupeMoves(entries) {
@@ -351,19 +383,25 @@ function createUciWorkerClient({ workerUrl }) {
     });
   }
 
-  async function getRankedMovesWithScores(fen, { movetimeMs = 1500, multiPv = 8, depth = null } = {}) {
+  async function getRankedMovesWithScores(
+    fen,
+    { movetimeMs = 1500, multiPv = 8, depth = null, searchMoves = [] } = {}
+  ) {
     return enqueueTask(async () => {
       const requestedMultiPv = Math.max(1, Math.floor(multiPv));
       const requestedDepth =
         Number.isFinite(Number(depth)) && Number(depth) > 0 ? Math.floor(Number(depth)) : null;
+      const requestedSearchMoves = normalizeSearchMoves(searchMoves);
       const rankedBySlot = new Map();
 
       send(`setoption name MultiPV value ${requestedMultiPv}`);
       send(`position fen ${fen}`);
+      const searchmovesSuffix =
+        requestedSearchMoves.length > 0 ? ` searchmoves ${requestedSearchMoves.join(' ')}` : '';
       if (requestedDepth !== null) {
-        send(`go depth ${requestedDepth} movetime ${movetimeMs}`);
+        send(`go depth ${requestedDepth} movetime ${movetimeMs}${searchmovesSuffix}`);
       } else {
-        send(`go movetime ${movetimeMs}`);
+        send(`go movetime ${movetimeMs}${searchmovesSuffix}`);
       }
 
       const bestMoveLine = await waitForLine(
@@ -437,8 +475,65 @@ function createUciWorkerClient({ workerUrl }) {
   };
 }
 
-export function createEngine() {
+export function createEngine({ provider = 'stockfish', maiaDifficulty = 1500 } = {}) {
   const workerUrl = `${import.meta.env.BASE_URL}stockfish/stockfish.wasm.js`;
+
+  if (provider === 'maia') {
+    const analysisClient = createUciWorkerClient({ workerUrl });
+    const fallbackPlayClient = createUciWorkerClient({ workerUrl });
+    const maiaClient = createMaiaOpponentClient({ difficultyElo: maiaDifficulty });
+
+    async function init() {
+      await Promise.all([maiaClient.init(), analysisClient.init(), fallbackPlayClient.init()]);
+    }
+
+    async function setSkillLevel(level = 20) {
+      await Promise.all([analysisClient.setSkillLevel(level), fallbackPlayClient.setSkillLevel(level)]);
+    }
+
+    async function newGame() {
+      analysisClient.flush('new_game');
+      void analysisClient.newGame().catch(() => {});
+      fallbackPlayClient.flush('new_game', { cancelActive: true });
+      void fallbackPlayClient.newGame().catch(() => {});
+      await maiaClient.newGame();
+    }
+
+    function flushAnalysis(reason = 'flushed') {
+      analysisClient.flush(reason);
+    }
+
+    function terminate() {
+      analysisClient.terminate();
+      fallbackPlayClient.terminate();
+      maiaClient.terminate();
+    }
+
+    async function getBestMove(fen, search) {
+      try {
+        return await maiaClient.getBestMove(fen);
+      } catch (error) {
+        if (!(error instanceof MaiaRequestExhaustedError)) {
+          throw error;
+        }
+        return fallbackPlayClient.getBestMove(fen, search);
+      }
+    }
+
+    return {
+      init,
+      setSkillLevel,
+      setMaiaDifficulty: (elo) => Promise.resolve(maiaClient.setDifficultyElo(elo)),
+      newGame,
+      getBestMove,
+      getRankedMoves: (fen, options) => maiaClient.getRankedMoves(fen, options),
+      getRankedMovesWithScores: (fen, options) => maiaClient.getRankedMovesWithScores(fen, options),
+      analyzePosition: (fen, movetimeMs) => analysisClient.analyzePosition(fen, movetimeMs),
+      flushAnalysis,
+      terminate
+    };
+  }
+
   const playClient = createUciWorkerClient({ workerUrl });
   const analysisClient = createUciWorkerClient({ workerUrl });
 
@@ -469,6 +564,7 @@ export function createEngine() {
   return {
     init,
     setSkillLevel,
+    setMaiaDifficulty: () => {},
     newGame,
     getBestMove: (fen, search) => playClient.getBestMove(fen, search),
     getRankedMoves: (fen, options) => playClient.getRankedMoves(fen, options),

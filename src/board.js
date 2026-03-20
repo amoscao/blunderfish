@@ -16,6 +16,8 @@ const PIECE_IMAGE_BY_CODE = {
   bk: 'b_king_png_128px.png'
 };
 
+const DRAG_START_DISTANCE_PX = 6;
+
 function squareColor(square) {
   const fileIndex = FILES.indexOf(square[0]);
   const rankNumber = Number(square[1]);
@@ -48,6 +50,201 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   let kingOutcomeByColor = { w: null, b: null };
   let blindSquares = new Set();
   let showBlindMarkers = false;
+  let pendingDrag = null;
+  let dragState = null;
+  let suppressNextClick = false;
+
+  function distanceBetweenPoints(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getPointerPosition(clientX, clientY) {
+    const rect = container.getBoundingClientRect();
+    return {
+      clientX,
+      clientY,
+      localX: clientX - rect.left,
+      localY: clientY - rect.top
+    };
+  }
+
+  function squareAtClientPoint(clientX, clientY) {
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    if (
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top ||
+      clientY > rect.bottom
+    ) {
+      return null;
+    }
+
+    const col = clamp(Math.floor(((clientX - rect.left) / rect.width) * 8), 0, 7);
+    const row = clamp(Math.floor(((clientY - rect.top) / rect.height) * 8), 0, 7);
+    const squares = squaresForOrientation(orientation);
+    return squares[row * 8 + col] || null;
+  }
+
+  function cancelPendingDrag() {
+    pendingDrag = null;
+  }
+
+  function stopDragging() {
+    dragState = null;
+  }
+
+  function cancelActiveDrag({ rerender = true, clearHighlights = true } = {}) {
+    const hadDrag = Boolean(dragState);
+    cancelPendingDrag();
+    stopDragging();
+
+    if (clearHighlights) {
+      clearSelection();
+    }
+
+    if (rerender && (hadDrag || clearHighlights)) {
+      render(position, orientation);
+    }
+  }
+
+  function beginDragging(pointerInfo) {
+    dragState = {
+      pointerId: pointerInfo.pointerId,
+      fromSquare: pointerInfo.square,
+      piece: pointerInfo.piece,
+      pointerPosition: getPointerPosition(pointerInfo.clientX, pointerInfo.clientY),
+      hoverSquare: squareAtClientPoint(pointerInfo.clientX, pointerInfo.clientY)
+    };
+
+    showLegalTargets(pointerInfo.square, getLegalTargets(pointerInfo.square));
+  }
+
+  function updateDragPointer(clientX, clientY) {
+    if (!dragState) {
+      return;
+    }
+
+    dragState.pointerPosition = getPointerPosition(clientX, clientY);
+    dragState.hoverSquare = squareAtClientPoint(clientX, clientY);
+    render(position, orientation);
+  }
+
+  function completeDrag(toSquare) {
+    if (!dragState) {
+      return;
+    }
+
+    const fromSquare = dragState.fromSquare;
+    const canDrop = Boolean(toSquare) && legalTargets.includes(toSquare);
+    stopDragging();
+    clearSelection();
+    render(position, orientation);
+
+    if (canDrop) {
+      onHumanMoveAttempt({ from: fromSquare, to: toSquare });
+    }
+  }
+
+  function onPointerDown(event) {
+    if (!interactionEnabled) {
+      return;
+    }
+
+    if (event.button !== 0 && event.pointerType !== 'touch') {
+      return;
+    }
+
+    const pieceEl = event.target.closest('.piece');
+    const squareEl = event.target.closest('.square');
+    if (!pieceEl || !squareEl || !container.contains(squareEl)) {
+      return;
+    }
+
+    const square = squareEl.dataset.square;
+    const piece = square ? position[square] : null;
+    if (!square || !piece || !canSelectSquare(square, piece)) {
+      return;
+    }
+
+    pendingDrag = {
+      pointerId: event.pointerId,
+      square,
+      piece,
+      start: { x: event.clientX, y: event.clientY },
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+  }
+
+  function onPointerMove(event) {
+    if (dragState) {
+      if (event.pointerId !== dragState.pointerId) {
+        return;
+      }
+
+      event.preventDefault();
+      updateDragPointer(event.clientX, event.clientY);
+      return;
+    }
+
+    if (!pendingDrag || event.pointerId !== pendingDrag.pointerId) {
+      return;
+    }
+
+    if (
+      distanceBetweenPoints(pendingDrag.start, {
+        x: event.clientX,
+        y: event.clientY
+      }) < DRAG_START_DISTANCE_PX
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextPendingDrag = pendingDrag;
+    cancelPendingDrag();
+    beginDragging({
+      ...nextPendingDrag,
+      clientX: event.clientX,
+      clientY: event.clientY
+    });
+  }
+
+  function onPointerUp(event) {
+    if (dragState && event.pointerId === dragState.pointerId) {
+      event.preventDefault();
+      suppressNextClick = true;
+      const dropSquare = squareAtClientPoint(event.clientX, event.clientY);
+      completeDrag(dropSquare);
+      return;
+    }
+
+    if (pendingDrag && event.pointerId === pendingDrag.pointerId) {
+      cancelPendingDrag();
+    }
+  }
+
+  function onPointerCancel(event) {
+    if (dragState && event.pointerId === dragState.pointerId) {
+      suppressNextClick = true;
+      cancelActiveDrag();
+      return;
+    }
+
+    if (pendingDrag && event.pointerId === pendingDrag.pointerId) {
+      cancelPendingDrag();
+    }
+  }
 
   function setMoveQueryHandlers(handlers) {
     getLegalTargets = handlers.getLegalTargets;
@@ -72,6 +269,9 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
   function setInteractionEnabled(enabled) {
     interactionEnabled = enabled;
+    if (!enabled) {
+      cancelActiveDrag();
+    }
   }
 
   function setLastMove(move) {
@@ -88,6 +288,11 @@ export function createBoard({ container, onHumanMoveAttempt }) {
   }
 
   function onSquareClick(square) {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
+
     if (!interactionEnabled) {
       return;
     }
@@ -117,40 +322,6 @@ export function createBoard({ container, onHumanMoveAttempt }) {
     showLegalTargets(square, targets);
   }
 
-  function onPieceDragStart(event, fromSquare) {
-    if (!interactionEnabled) {
-      event.preventDefault();
-      return;
-    }
-
-    const piece = position[fromSquare];
-    if (!piece || !canSelectSquare(fromSquare, piece)) {
-      event.preventDefault();
-      return;
-    }
-
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', fromSquare);
-    showLegalTargets(fromSquare, getLegalTargets(fromSquare));
-  }
-
-  function onSquareDrop(event, toSquare) {
-    event.preventDefault();
-    if (!interactionEnabled) {
-      return;
-    }
-
-    const fromSquare = event.dataTransfer.getData('text/plain');
-    if (!fromSquare || !legalTargets.includes(toSquare)) {
-      clearLegalTargets();
-      return;
-    }
-
-    clearSelection();
-    render(position, orientation);
-    onHumanMoveAttempt({ from: fromSquare, to: toSquare });
-  }
-
   function render(nextPosition, nextOrientation = orientation) {
     position = nextPosition;
     orientation = nextOrientation;
@@ -171,8 +342,6 @@ export function createBoard({ container, onHumanMoveAttempt }) {
       squareEl.setAttribute('aria-label', `Square ${square}`);
 
       squareEl.addEventListener('click', () => onSquareClick(square));
-      squareEl.addEventListener('dragover', (event) => event.preventDefault());
-      squareEl.addEventListener('drop', (event) => onSquareDrop(event, square));
 
       if (lastMove && (square === lastMove.from || square === lastMove.to)) {
         squareEl.classList.add('last-move');
@@ -180,6 +349,10 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
       if (selectedSquare === square) {
         squareEl.classList.add('selected');
+      }
+
+      if (dragState?.hoverSquare === square && legalTargets.includes(square)) {
+        squareEl.classList.add('drag-hover');
       }
 
       if (piece?.type === 'k' && kingOutcomeByColor[piece.color]) {
@@ -218,8 +391,13 @@ export function createBoard({ container, onHumanMoveAttempt }) {
         pieceEl.className = 'piece';
         pieceEl.src = `${import.meta.env.BASE_URL}assets/chess/${PIECE_IMAGE_BY_CODE[pieceCode]}`;
         pieceEl.alt = `${piece.color === 'w' ? 'white' : 'black'} ${piece.type}`;
-        pieceEl.draggable = true;
-        pieceEl.addEventListener('dragstart', (event) => onPieceDragStart(event, square));
+        pieceEl.draggable = false;
+        pieceEl.addEventListener('dragstart', (event) => event.preventDefault());
+
+        if (dragState?.fromSquare === square) {
+          pieceEl.classList.add('piece-dragging-source');
+        }
+
         squareEl.appendChild(pieceEl);
 
         if (showBlindMarkers && blindSquares.has(square)) {
@@ -239,7 +417,24 @@ export function createBoard({ container, onHumanMoveAttempt }) {
 
       container.appendChild(squareEl);
     }
+
+    if (dragState) {
+      const pieceCode = `${dragState.piece.color}${dragState.piece.type}`;
+      const dragPieceEl = document.createElement('img');
+      dragPieceEl.className = 'drag-piece-preview';
+      dragPieceEl.src = `${import.meta.env.BASE_URL}assets/chess/${PIECE_IMAGE_BY_CODE[pieceCode]}`;
+      dragPieceEl.alt = '';
+      dragPieceEl.setAttribute('aria-hidden', 'true');
+      dragPieceEl.style.left = `${dragState.pointerPosition.localX}px`;
+      dragPieceEl.style.top = `${dragState.pointerPosition.localY}px`;
+      container.appendChild(dragPieceEl);
+    }
   }
+
+  container.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerCancel);
 
   return {
     render,

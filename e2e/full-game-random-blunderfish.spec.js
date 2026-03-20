@@ -47,7 +47,7 @@ async function legalTargetSquares(page) {
   });
 }
 
-async function tryPlayRandomWhiteMove(page) {
+async function tryPlayRandomWhiteMoveByClick(page) {
   const fromSquares = shuffled(await whitePieceSquares(page));
 
   for (const from of fromSquares) {
@@ -66,18 +66,56 @@ async function tryPlayRandomWhiteMove(page) {
   return false;
 }
 
-test('plays a full random white game at 10% blunder to a losing end-game modal', async ({ page }) => {
-  test.setTimeout(120000);
+async function tryPlayRandomWhiteMoveByDrag(page) {
+  const fromSquares = shuffled(await whitePieceSquares(page));
 
+  for (const from of fromSquares) {
+    const piece = page.locator(`[data-square="${from}"] .piece`);
+    const pieceBox = await piece.boundingBox();
+    if (!pieceBox) {
+      continue;
+    }
+
+    const startX = pieceBox.x + pieceBox.width / 2;
+    const startY = pieceBox.y + pieceBox.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 12, startY, { steps: 4 });
+
+    const targets = await legalTargetSquares(page);
+    if (targets.length === 0) {
+      await page.mouse.up();
+      continue;
+    }
+
+    const to = targets[Math.floor(Math.random() * targets.length)];
+    const targetSquare = page.locator(`[data-square="${to}"]`);
+    const targetBox = await targetSquare.boundingBox();
+
+    if (!targetBox) {
+      await page.mouse.up();
+      continue;
+    }
+
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+      steps: 10
+    });
+    await page.mouse.up();
+    return true;
+  }
+
+  return false;
+}
+
+async function startRandomWhiteBlunderfishGame(page) {
   await page.goto('/?engineMovetimeMs=50');
   await page.getByRole('button', { name: 'Blunderfish' }).click();
   await page.getByLabel('Play as').selectOption('w');
-  await page.locator('#setup-blunder-slider').evaluate((el) => {
-    el.value = '10';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
   await page.getByRole('button', { name: 'Start Game' }).click();
+}
 
+async function expectRandomWhiteLoss(page, tryPlayMove) {
   const resultDialog = page.locator('#game-result-dialog');
   const moveRows = page.locator('#moves-body tr');
 
@@ -90,7 +128,7 @@ test('plays a full random white game at 10% blunder to a losing end-game modal',
   const maxHumanMoves = 120;
 
   while (!(await resultDialog.isVisible()) && humanMoves < maxHumanMoves) {
-    const played = await tryPlayRandomWhiteMove(page);
+    const played = await tryPlayMove(page);
     if (!played) {
       await page.waitForTimeout(100);
       continue;
@@ -118,4 +156,22 @@ test('plays a full random white game at 10% blunder to a losing end-game modal',
   await expect(page.locator('#game-result-graph')).toBeVisible();
   await expect(page.locator('#new-game-btn')).toHaveText('New Game');
   await expect(moveRows).not.toHaveCount(0);
+}
+
+test('plays a full random white game to a losing end-game modal using click input', async ({
+  page
+}) => {
+  test.setTimeout(120000);
+
+  await startRandomWhiteBlunderfishGame(page);
+  await expectRandomWhiteLoss(page, tryPlayRandomWhiteMoveByClick);
+});
+
+test('plays a full random white game to a losing end-game modal using drag input', async ({
+  page
+}) => {
+  test.setTimeout(120000);
+
+  await startRandomWhiteBlunderfishGame(page);
+  await expectRandomWhiteLoss(page, tryPlayRandomWhiteMoveByDrag);
 });

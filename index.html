@@ -8,6 +8,20 @@
     />
     <title>Blunderfish</title>
     <link rel="stylesheet" href="/src/styles.css" />
+    <script>
+      (function loadGoatCounter() {
+        const goatCounterHosts = new Set(['blunderfish.com', 'www.blunderfish.com']);
+        if (!goatCounterHosts.has(window.location.hostname)) {
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://gc.zgo.at/count.js';
+        script.dataset.goatcounter = 'https://blunderfish.goatcounter.com/count';
+        document.head.append(script);
+      })();
+    </script>
   </head>
   <body>
     <section id="mode-select-screen" class="mode-screen" aria-label="Game mode selection">

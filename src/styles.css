@@ -368,8 +368,8 @@ button:hover {
 
 .drag-piece-preview {
   position: absolute;
-  width: 12.5%;
-  height: 12.5%;
+  width: 10%;
+  height: 10%;
   object-fit: contain;
   transform: translate(-50%, -50%);
   pointer-events: none;

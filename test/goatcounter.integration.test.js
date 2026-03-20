@@ -28,6 +28,10 @@ const boardMock = vi.hoisted(() => ({
   render: vi.fn()
 }));
 
+const gameState = vi.hoisted(() => ({
+  status: { over: false, result: null, reason: null, check: false }
+}));
+
 function createGameDouble() {
   let turn = 'w';
   let humanColor = 'w';
@@ -69,7 +73,7 @@ function createGameDouble() {
     buildBlindFen: vi.fn().mockReturnValue('4k3/8/8/8/8/8/8/4K3 b - - 0 1'),
     isBlindFenSearchSafe: vi.fn().mockReturnValue(true),
     getGameStatus() {
-      return { over: false, result: null, reason: null, check: false };
+      return gameState.status;
     },
     getMoveHistory() {
       return history;
@@ -116,7 +120,18 @@ describe('goatcounter mode start tracking', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    engineMock.init.mockReset().mockResolvedValue(undefined);
+    engineMock.setSkillLevel.mockReset().mockResolvedValue(undefined);
+    engineMock.setMaiaDifficulty.mockReset().mockResolvedValue(undefined);
+    engineMock.newGame.mockReset().mockResolvedValue(undefined);
+    engineMock.getBestMove.mockReset().mockResolvedValue({ from: 'a7', to: 'a6' });
+    engineMock.analyzePosition.mockReset().mockResolvedValue({ type: 'cp', value: 0 });
+    engineMock.getRankedMovesWithScores.mockReset().mockResolvedValue([]);
+    engineMock.getRankedMoves.mockReset().mockResolvedValue([]);
+    engineMock.flushAnalysis.mockReset();
+    engineMock.terminate.mockReset();
     createEngineMock.mockImplementation(() => engineMock);
+    gameState.status = { over: false, result: null, reason: null, check: false };
 
     loadIndexDom();
     Object.defineProperty(window, 'matchMedia', {
@@ -173,5 +188,49 @@ describe('goatcounter mode start tracking', () => {
       provider: 'stockfish',
       maiaDifficulty: 1100
     });
+  });
+
+  test('rematch start sends another Goatcounter event', async () => {
+    const count = vi.fn();
+    window.goatcounter = { count };
+
+    await import('../src/main.js');
+
+    document.querySelector('#mode-clapbackfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    document.querySelector('#game-result-rematch-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(count).toHaveBeenCalledTimes(2);
+    expect(count).toHaveBeenNthCalledWith(1, {
+      path: 'game-start-clapbackfish',
+      title: 'Game started: clapbackfish',
+      event: true
+    });
+    expect(count).toHaveBeenNthCalledWith(2, {
+      path: 'game-start-clapbackfish',
+      title: 'Game started: clapbackfish',
+      event: true
+    });
+  });
+
+  test('failed startup does not send a Goatcounter event', async () => {
+    const count = vi.fn();
+    window.goatcounter = { count };
+    engineMock.init.mockRejectedValueOnce(new Error('engine init failed'));
+
+    await import('../src/main.js');
+
+    document.querySelector('#mode-rampfish-btn').click();
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(count).not.toHaveBeenCalled();
+    expect(document.querySelector('#status-text').textContent).toContain('Startup failed');
   });
 });

@@ -1537,6 +1537,8 @@ async function startNewGame() {
   if (!isHumanTurn()) {
     await requestEngineMove();
   }
+
+  trackGoatcounterEvent(`game-start-${activeMode}`, `Game started: ${activeMode}`);
 }
 
 newGameBtn.addEventListener('click', () => {
@@ -1680,7 +1682,6 @@ async function launchMode(mode) {
   modeSelectNoteEl.textContent = '';
   setModeSelectionDisabled(true);
   applySetupSelections();
-  trackGoatcounterEvent(`game-start-${mode}`, `Game started: ${mode}`);
   showGameApp();
 
   try {

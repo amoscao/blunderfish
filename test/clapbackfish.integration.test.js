@@ -205,6 +205,29 @@ describe('clapbackfish integration', () => {
     expect(engineMock.getBestMove).not.toHaveBeenCalled();
   });
 
+  test('avoids deliberate winning mate lines before post-clapback phase', async () => {
+    gameConfig.legalMoves = [
+      { from: 'a7', to: 'a6' },
+      { from: 'a7', to: 'a5' }
+    ];
+    engineMock.getRankedMovesWithScores.mockResolvedValueOnce([
+      { rank: 1, move: { from: 'a7', to: 'a6' }, score: { type: 'mate', value: 3 } },
+      { rank: 2, move: { from: 'a7', to: 'a5' }, score: { type: 'cp', value: -1950 } }
+    ]);
+
+    await import('../src/main.js');
+    document.querySelector('#mode-clapbackfish-btn').click();
+    const colorSelect = document.querySelector('#setup-color-select');
+    colorSelect.value = 'w';
+    colorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#setup-start-btn').click();
+    await flushUi();
+    await flushUi();
+
+    expect(gameApplyMoveMock).toHaveBeenCalledWith({ from: 'a7', to: 'a5' });
+    expect(gameApplyMoveMock).not.toHaveBeenCalledWith({ from: 'a7', to: 'a6' });
+  });
+
   test('starting clapbackfish should not reset blunderfish setup slider value', async () => {
     await import('../src/main.js');
 

@@ -262,6 +262,10 @@ function scoreToComparableCp(score) {
   return score.value > 0 ? 100000 : -100000;
 }
 
+function isWinningMateScore(score) {
+  return Boolean(score) && score.type === 'mate' && score.value > 0;
+}
+
 function outcomeTitleText(status) {
   if (status.result === 'draw') {
     return 'Draw!';
@@ -1381,6 +1385,7 @@ async function requestEngineMove() {
         }
 
         let bestEntry = null;
+        let bestWinningMateEntry = null;
         for (const entry of orderedEntries) {
           if (!entry.score) {
             continue;
@@ -1388,17 +1393,34 @@ async function requestEngineMove() {
           const scoreForComputer = scoreToColorPerspective(entry.score, game.getTurn(), computerColor);
           const scoreCpComparable = scoreToComparableCp(scoreForComputer);
           const distance = Math.abs(scoreCpComparable - lastClapbackTargetCp);
+          const candidate = { ...entry, distance };
+
+          if (isWinningMateScore(scoreForComputer)) {
+            if (
+              !bestWinningMateEntry ||
+              distance < bestWinningMateEntry.distance ||
+              (distance === bestWinningMateEntry.distance &&
+                entry.rank < bestWinningMateEntry.rank)
+            ) {
+              bestWinningMateEntry = candidate;
+            }
+            continue;
+          }
 
           if (
             !bestEntry ||
             distance < bestEntry.distance ||
             (distance === bestEntry.distance && entry.rank < bestEntry.rank)
           ) {
-            bestEntry = { ...entry, distance };
+            bestEntry = candidate;
           }
         }
 
-        selectedMove = bestEntry ? bestEntry.move : orderedEntries[0]?.move || legalMoves[0];
+        selectedMove =
+          bestEntry?.move ||
+          bestWinningMateEntry?.move ||
+          orderedEntries[0]?.move ||
+          legalMoves[0];
       }
       computerMoveKinds.set(historyPlyIndex, 'clapback');
       randomMoveHurts.delete(historyPlyIndex);
